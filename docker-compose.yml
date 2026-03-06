@@ -1,0 +1,54 @@
+services:
+
+  # ─── MongoDB ────────────────────────────────────────────────────────────────
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── API (Express + tRPC) ───────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/gcse
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production-min-32-chars}
+      PORT: 3001
+      WEB_URL: http://localhost:3000
+      NODE_ENV: production
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  # ─── Web (Next.js) ──────────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # The browser (running on the host) calls the API via the port-mapped
+        # localhost:3001. This value is baked into the JS bundle at build time.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - api
+
+volumes:
+  mongo_data:
