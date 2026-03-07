@@ -34,7 +34,7 @@ RUN pnpm --filter @gcse/database build && \
     pnpm --filter @gcse/api       build
 
 # Create self-contained deployment bundle (workspace deps inlined)
-RUN pnpm deploy --filter @gcse/api --prod /prod
+RUN pnpm deploy --legacy --filter @gcse/api --prod /prod
 
 # ─── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner

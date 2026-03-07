@@ -28,7 +28,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-production-min-32-chars}
       PORT: 3001
       WEB_URL: http://localhost:3000
-      NODE_ENV: production
+      NODE_ENV: development
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
       mongodb:
         condition: service_healthy
