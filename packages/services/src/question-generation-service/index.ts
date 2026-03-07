@@ -44,12 +44,13 @@ class QuestionGenerationService {
     });
 
     // 4. Resolve AI model from user/parent preference
-    const modelId = await this.resolveModel(userId);
+    const modelId = await this.resolveModelForUser(userId);
 
     // 5. Generate via AI
     const generated = await this.callAI(mod, template, difficulty, examBoard, modelId);
 
     // 6. Save and return
+    const isCoding = template?.questionType === "coding";
     const doc = await GeneratedQuestion.insertOne({
       moduleId: Types.ObjectId.isValid(moduleId) ? new Types.ObjectId(moduleId) : moduleId,
       templateId: template ? template._id : undefined,
@@ -57,12 +58,12 @@ class QuestionGenerationService {
       questionType: template?.questionType ?? "short_answer",
       difficulty,
       questionText: generated.questionText,
-      answerFormat: "free_text",
+      answerFormat: isCoding ? "code" : "free_text",
       maxMarks: generated.maxMarks,
       markSchemePoints: generated.markSchemePoints,
       modelAnswer: generated.modelAnswer,
       hints: generated.hints,
-      testCases: [],
+      testCases: generated.testCases ?? [],
       metadata: {
         examBoard: examBoard ?? mod.examBoard,
         topicName: mod.topicName,
@@ -74,7 +75,7 @@ class QuestionGenerationService {
     return this.toOutput(doc);
   }
 
-  private async resolveModel(userId: string): Promise<string> {
+  public async resolveModelForUser(userId: string): Promise<string> {
     const user = await User.findOne({
       _id: Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : userId,
     });
@@ -100,8 +101,32 @@ class QuestionGenerationService {
     hints: string[];
     modelAnswer: string;
     misconceptionNotes: string[];
+    testCases: { input: string; expectedOutput: string; hidden: boolean }[];
   }> {
-    const systemPrompt = `You are a GCSE Computer Science examiner. Generate exam-style questions in valid JSON only.
+    const isCoding = template?.questionType === "coding";
+
+    const systemPrompt = isCoding
+      ? `You are a GCSE Computer Science examiner. Generate Python coding questions in valid JSON only.
+Output ONLY a JSON object with exactly these fields:
+{
+  "questionText": "the full question text",
+  "maxMarks": 6,
+  "testCases": [
+    { "input": "5", "expectedOutput": "25", "hidden": false },
+    { "input": "3", "expectedOutput": "9", "hidden": false },
+    { "input": "-2", "expectedOutput": "4", "hidden": true }
+  ],
+  "markSchemePoints": ["point 1 per mark"],
+  "modelAnswer": "def solution(n):\\n    return n * n",
+  "hints": ["hint 1", "hint 2", "hint 3", "hint 4", "hint 5"],
+  "misconceptionNotes": ["common mistake"]
+}
+Rules:
+- testCases: minimum 2 visible (hidden: false) + 1 hidden (hidden: true)
+- number of markSchemePoints must equal maxMarks
+- hints: exactly 5, progressively more helpful; hint 5 is pseudocode/structure, never full solution
+- modelAnswer: working Python code`
+      : `You are a GCSE Computer Science examiner. Generate exam-style questions in valid JSON only.
 Output ONLY a JSON object with exactly these fields:
 {
   "questionText": "the question text",
@@ -123,7 +148,7 @@ Key concepts: ${template.rubric.acceptedConcepts.join(", ")}
 Common misconceptions to address in hints: ${template.rubric.commonMisconceptions.join(", ")}`
       : "";
 
-    const userPrompt = `Generate a ${difficulty} short_answer question about "${mod.topicName}" for ${examBoard ?? mod.examBoard} GCSE.
+    const userPrompt = `Generate a ${difficulty} ${isCoding ? "coding" : "short_answer"} question about "${mod.topicName}" for ${examBoard ?? mod.examBoard} GCSE.
 ${templateContext}
 Max marks: ${template?.rubric.maxMarks ?? 4}`;
 
@@ -156,6 +181,10 @@ Max marks: ${template?.rubric.maxMarks ?? 4}`;
       throw new Error("Invalid question structure from AI");
     }
 
+    if (isCoding && (!Array.isArray(parsed.testCases) || parsed.testCases.length < 3)) {
+      throw new Error("Invalid coding question: insufficient test cases from AI");
+    }
+
     return {
       questionText: parsed.questionText,
       maxMarks: parsed.maxMarks,
@@ -163,6 +192,7 @@ Max marks: ${template?.rubric.maxMarks ?? 4}`;
       hints: parsed.hints,
       modelAnswer: parsed.modelAnswer,
       misconceptionNotes: Array.isArray(parsed.misconceptionNotes) ? parsed.misconceptionNotes : [],
+      testCases: isCoding ? parsed.testCases : [],
     };
   }
 

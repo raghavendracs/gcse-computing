@@ -19,4 +19,12 @@ export const useRequestHint = () => {
   return trpc.questions.requestHint.useMutation();
 };
 
+export const useRunCode = () => {
+  return trpc.questions.runCode.useMutation();
+};
+
+export const useRequestCodingHint = () => {
+  return trpc.questions.requestCodingHint.useMutation();
+};
+
 //#endregion  //*======== Mutations ===========

@@ -30,9 +30,21 @@ services:
       WEB_URL: http://localhost:3000
       NODE_ENV: development
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PYTHON_SANDBOX_URL: http://python-sandbox:8000
     depends_on:
       mongodb:
         condition: service_healthy
+
+  # ─── Python Sandbox ─────────────────────────────────────────────────────────
+  python-sandbox:
+    build:
+      context: .
+      dockerfile: apps/python-sandbox/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MAX_TIMEOUT_MS: 5000
 
   # ─── Web (Next.js) ──────────────────────────────────────────────────────────
   web:

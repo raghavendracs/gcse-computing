@@ -64,3 +64,39 @@ export const requestHintOutputModel = z.object({
   hintLevel: z.number(),
   isLastHint: z.boolean(),
 });
+
+export const runCodeInputModel = z.object({
+  questionId: z.string(),
+  code: z.string(),
+});
+
+const testResultModel = z.object({
+  input: z.string(),
+  expectedOutput: z.string(),
+  actualOutput: z.string(),
+  passed: z.boolean(),
+  hidden: z.boolean(),
+});
+
+export const runCodeOutputModel = z.object({
+  testResults: z.array(testResultModel),
+  stderr: z.string(),
+  executionTimeMs: z.number(),
+  timedOut: z.boolean(),
+  blocked: z.boolean(),
+  blockReason: z.string().nullable(),
+  executionPath: z.enum(["sandbox", "ai"]),
+});
+
+export const requestCodingHintInputModel = z.object({
+  questionId: z.string(),
+  code: z.string(),
+  currentHintLevel: z.number().int().min(0).max(4),
+  testResults: z.array(testResultModel).optional(),
+});
+
+export const requestCodingHintOutputModel = z.object({
+  hintText: z.string(),
+  hintLevel: z.number(),
+  isLastHint: z.boolean(),
+});

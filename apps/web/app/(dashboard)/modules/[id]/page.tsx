@@ -24,9 +24,10 @@ export default function ModuleDetailPage() {
   const { module, isLoading } = useGetModule(moduleId);
   const startSession = useStartSession();
 
-  const handleStart = async (mode: "theory") => {
+  const handleStart = async (mode: "theory" | "coding") => {
     const { sessionId } = await startSession.mutateAsync({ moduleId, mode });
-    router.push(`/modules/${moduleId}/practice?sessionId=${sessionId}&mode=${mode}`);
+    const path = mode === "coding" ? "coding" : "practice";
+    router.push(`/modules/${moduleId}/${path}?sessionId=${sessionId}&mode=${mode}`);
   };
 
   if (isLoading) {
@@ -101,12 +102,16 @@ export default function ModuleDetailPage() {
             <span className="text-xs text-slate-500 mt-1">Short-answer & extended questions</span>
           </button>
 
-          {/* Coding — coming in Phase 3 */}
-          <div className="flex flex-col items-start p-5 rounded-xl border-2 border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed">
+          {/* Coding — active */}
+          <button
+            onClick={() => handleStart("coding")}
+            disabled={startSession.isPending}
+            className="flex flex-col items-start p-5 rounded-xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-400 transition-colors disabled:opacity-60 disabled:cursor-not-allowed text-left"
+          >
             <span className="text-2xl mb-2">💻</span>
-            <span className="font-semibold text-slate-600">Coding</span>
-            <span className="text-xs text-slate-400 mt-1">Coming in Phase 3</span>
-          </div>
+            <span className="font-semibold text-slate-900">Coding</span>
+            <span className="text-xs text-slate-500 mt-1">Python programming questions</span>
+          </button>
 
           {/* Mixed — coming in Phase 3 */}
           <div className="flex flex-col items-start p-5 rounded-xl border-2 border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed">

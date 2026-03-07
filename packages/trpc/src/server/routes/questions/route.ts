@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { Types } from "mongoose";
 import { GeneratedQuestion, HintEvent, QuestionAttempt, StudySession } from "@gcse/database";
-import { QuestionGenerationService, TheoryMarkingService } from "@gcse/services";
+import { QuestionGenerationService, TheoryMarkingService, CodeExecutionService, CodingAssessmentService, HintGenerationService } from "@gcse/services";
 import { studentProcedure, router } from "../../trpc";
 import {
   generateQuestionInputModel,
@@ -10,10 +10,17 @@ import {
   submitAnswerOutputModel,
   requestHintInputModel,
   requestHintOutputModel,
+  runCodeInputModel,
+  runCodeOutputModel,
+  requestCodingHintInputModel,
+  requestCodingHintOutputModel,
 } from "./models";
 
 const questionGenSvc = new QuestionGenerationService();
 const markingSvc = new TheoryMarkingService();
+const codeExecSvc = new CodeExecutionService();
+const codingAssessmentSvc = new CodingAssessmentService();
+const hintGenSvc = new HintGenerationService();
 
 export const questionsRouter = router({
   generateQuestion: studentProcedure
@@ -40,7 +47,6 @@ export const questionsRouter = router({
       });
       if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
 
-      // Count prior attempts for attempt number
       const priorCount = await QuestionAttempt.countDocuments({
         $and: [
           { questionId: question._id },
@@ -48,43 +54,89 @@ export const questionsRouter = router({
         ],
       });
 
-      // Mark the answer
-      const assessment = await markingSvc.markAnswer({
-        questionText: question.questionText,
-        markSchemePoints: question.markSchemePoints,
-        submittedAnswer: input.answer,
-        maxMarks: question.maxMarks,
-      });
-
-      const assessmentResult = {
-        awardedMarks: assessment.awardedMarks,
-        maxMarks: question.maxMarks,
-        feedback: assessment.feedback,
-        missingPoints: assessment.missingPoints,
-        strengths: assessment.strengths,
-        confidence: assessment.confidence,
+      let assessmentResult: {
+        awardedMarks: number;
+        maxMarks: number;
+        feedback: string;
+        missingPoints: string[];
+        strengths: string[];
+        confidence: number;
       };
+      let codingAnalysis: {
+        syntaxValid: boolean;
+        testsPassed: number;
+        testsFailed: number;
+        errorCategory: "syntax" | "logic" | "runtime" | null;
+        executionPath: "sandbox" | "ai";
+      } | undefined;
 
-      // Store attempt
+      if (question.answerFormat === "code") {
+        const execResult = await codeExecSvc.execute({
+          code: input.answer,
+          testCases: question.testCases,
+          timeoutMs: 5000,
+        });
+
+        const modelId = await questionGenSvc.resolveModelForUser(ctx.user!.userId);
+        const aiAssessment = await codingAssessmentSvc.assessCode({
+          questionText: question.questionText,
+          submittedCode: input.answer,
+          testResults: execResult.testResults,
+          markSchemePoints: question.markSchemePoints,
+          maxMarks: question.maxMarks,
+          modelId,
+        });
+
+        assessmentResult = {
+          awardedMarks: aiAssessment.awardedMarks,
+          maxMarks: question.maxMarks,
+          feedback: aiAssessment.feedback,
+          missingPoints: aiAssessment.missingPoints,
+          strengths: aiAssessment.strengths,
+          confidence: aiAssessment.confidence,
+        };
+        codingAnalysis = {
+          syntaxValid: aiAssessment.syntaxValid,
+          testsPassed: execResult.testResults.filter((r) => r.passed).length,
+          testsFailed: execResult.testResults.filter((r) => !r.passed).length,
+          errorCategory: aiAssessment.errorCategory,
+          executionPath: execResult.executionPath,
+        };
+      } else {
+        const marking = await markingSvc.markAnswer({
+          questionText: question.questionText,
+          markSchemePoints: question.markSchemePoints,
+          submittedAnswer: input.answer,
+          maxMarks: question.maxMarks,
+        });
+        assessmentResult = {
+          awardedMarks: marking.awardedMarks,
+          maxMarks: question.maxMarks,
+          feedback: marking.feedback,
+          missingPoints: marking.missingPoints,
+          strengths: marking.strengths,
+          confidence: marking.confidence,
+        };
+      }
+
       const attempt = await QuestionAttempt.insertOne({
         userId: new Types.ObjectId(ctx.user!.userId),
         questionId: question._id,
         moduleId: question.moduleId,
         attemptNumber: priorCount + 1,
         submittedAnswer: input.answer,
-        submissionType: "text",
+        submissionType: question.answerFormat === "code" ? "code" : "text",
         assessment: assessmentResult,
+        codingAnalysis,
         hintsUsedCount: input.hintsUsed,
         timeSpentSeconds: input.timeSpentSeconds,
       });
 
-      // Mark question as used only after attempt is safely written
       await GeneratedQuestion.updateOne(
         { _id: question._id },
         { $set: { usedInSession: true } },
       );
 
-      // Add question to session if sessionId provided
       if (input.sessionId) {
         await StudySession.updateOne(
           {
@@ -137,5 +189,72 @@ export const questionsRouter = router({
       });
 
       return { hintText, hintLevel: nextLevel, isLastHint: nextLevel === 5 };
+    }),
+
+  runCode: studentProcedure
+    .input(runCodeInputModel)
+    .output(runCodeOutputModel)
+    .mutation(async ({ ctx, input }) => {
+      const question = await GeneratedQuestion.findOne({
+        $and: [
+          { _id: new Types.ObjectId(input.questionId) },
+          { userId: new Types.ObjectId(ctx.user!.userId) },
+        ],
+      });
+      if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
+
+      const result = await codeExecSvc.execute({
+        code: input.code,
+        testCases: question.testCases,
+        timeoutMs: 5000,
+      });
+
+      return {
+        ...result,
+        testResults: result.testResults.map((r) =>
+          r.hidden
+            ? { ...r, expectedOutput: "", actualOutput: r.passed ? "" : "(hidden)" }
+            : r,
+        ),
+      };
+    }),
+
+  requestCodingHint: studentProcedure
+    .input(requestCodingHintInputModel)
+    .output(requestCodingHintOutputModel)
+    .mutation(async ({ ctx, input }) => {
+      const question = await GeneratedQuestion.findOne({
+        $and: [
+          { _id: new Types.ObjectId(input.questionId) },
+          { userId: new Types.ObjectId(ctx.user!.userId) },
+        ],
+      });
+      if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
+
+      const nextLevel = input.currentHintLevel + 1;
+      if (nextLevel > 5) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "No more hints available" });
+      }
+
+      const modelId = await questionGenSvc.resolveModelForUser(ctx.user!.userId);
+
+      const hint = await hintGenSvc.generateHint({
+        questionText: question.questionText,
+        submittedCode: input.code,
+        hintLevel: nextLevel as 1 | 2 | 3 | 4 | 5,
+        testResults: input.testResults,
+        modelId,
+      });
+
+      await HintEvent.insertOne({
+        userId: new Types.ObjectId(ctx.user!.userId),
+        questionId: question._id,
+        moduleId: question.moduleId,
+        hintLevel: nextLevel as 1 | 2 | 3 | 4 | 5,
+        hintText: hint.hintText,
+        requestedAt: new Date(),
+      });
+
+      return hint;
     }),
 });

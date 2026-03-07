@@ -165,4 +165,99 @@ describe("QuestionGenerationService", () => {
       svc.generateQuestion({ moduleId: "bad-id", userId: "user1" }),
     ).rejects.toThrow("Module not found");
   });
+
+  it("coding template generates question with answerFormat 'code' and testCases populated", async () => {
+    const codingTemplate = {
+      _id: { toString: () => "tmpl2" },
+      questionType: "coding",
+      promptTemplate: "Write a Python function that squares a number.",
+      rubric: {
+        maxMarks: 6,
+        acceptedConcepts: ["function", "return"],
+        commonMisconceptions: ["not returning a value"],
+      },
+    };
+
+    const codingAIResponse = {
+      questionText: "Write a Python function square(n) that returns n squared.",
+      maxMarks: 6,
+      testCases: [
+        { input: "5", expectedOutput: "25", hidden: false },
+        { input: "3", expectedOutput: "9", hidden: false },
+        { input: "-2", expectedOutput: "4", hidden: true },
+      ],
+      markSchemePoints: ["p1", "p2", "p3", "p4", "p5", "p6"],
+      modelAnswer: "def square(n):\n    return n * n",
+      hints: ["h1", "h2", "h3", "h4", "h5"],
+      misconceptionNotes: ["forgetting to return"],
+    };
+
+    (GeneratedQuestion.findOne as any).mockResolvedValue(null);
+    (Module.findOne as any).mockResolvedValue(mockModule);
+    (QuestionTemplate.findOne as any).mockResolvedValue(codingTemplate);
+    (User.findOne as any).mockResolvedValue({ role: "student", parentId: null });
+    mockClient.messages.create.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify(codingAIResponse) }],
+    });
+
+    const savedDoc = {
+      _id: { toString: () => "codingq1" },
+      moduleId: { toString: () => "mod1" },
+      questionType: "coding",
+      difficulty: "medium",
+      questionText: codingAIResponse.questionText,
+      answerFormat: "code",
+      maxMarks: 6,
+      markSchemePoints: codingAIResponse.markSchemePoints,
+      modelAnswer: codingAIResponse.modelAnswer,
+      hints: codingAIResponse.hints,
+      testCases: codingAIResponse.testCases,
+      metadata: { examBoard: "generic", topicName: "Sequence and Selection", misconceptionNotes: [] },
+    };
+    (GeneratedQuestion.insertOne as any).mockResolvedValue(savedDoc);
+
+    const result = await svc.generateQuestion({
+      moduleId: "mod1",
+      userId: "user1",
+      difficulty: "medium",
+    });
+
+    expect(result.answerFormat).toBe("code");
+    expect(result.testCases.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("throws when AI returns fewer than 3 test cases for a coding question", async () => {
+    const codingTemplate = {
+      _id: { toString: () => "tmpl3" },
+      questionType: "coding",
+      promptTemplate: "Write a Python function.",
+      rubric: {
+        maxMarks: 4,
+        acceptedConcepts: ["function"],
+        commonMisconceptions: ["syntax errors"],
+      },
+    };
+
+    const insufficientTestCasesResponse = {
+      questionText: "Write a function.",
+      maxMarks: 4,
+      testCases: [{ input: "1", expectedOutput: "1", hidden: false }],
+      markSchemePoints: ["p1", "p2", "p3", "p4"],
+      modelAnswer: "def f(n): return n",
+      hints: ["h1", "h2", "h3", "h4", "h5"],
+      misconceptionNotes: [],
+    };
+
+    (GeneratedQuestion.findOne as any).mockResolvedValue(null);
+    (Module.findOne as any).mockResolvedValue(mockModule);
+    (QuestionTemplate.findOne as any).mockResolvedValue(codingTemplate);
+    (User.findOne as any).mockResolvedValue({ role: "student", parentId: null });
+    mockClient.messages.create.mockResolvedValue({
+      content: [{ type: "text", text: JSON.stringify(insufficientTestCasesResponse) }],
+    });
+
+    await expect(
+      svc.generateQuestion({ moduleId: "mod1", userId: "user1", difficulty: "easy" }),
+    ).rejects.toThrow("Invalid coding question: insufficient test cases from AI");
+  });
 });
