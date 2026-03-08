@@ -1,0 +1,13 @@
+[build]
+builder = "nixpacks"
+buildCommand = "cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @gcse/trpc build && pnpm --filter web build"
+
+[deploy]
+startCommand = "node apps/web/.next/standalone/server.js"
+healthcheckPath = "/"
+healthcheckTimeout = 60
+restartPolicyType = "on_failure"
+
+[deploy.envs]
+PORT = "3000"
+HOSTNAME = "0.0.0.0"
