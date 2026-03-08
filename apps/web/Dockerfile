@@ -57,5 +57,9 @@ COPY --from=builder /app/apps/web/.next/standalone       ./
 COPY --from=builder /app/apps/web/.next/static           ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public                 ./apps/web/public
 
+RUN echo "=== /app contents ===" && ls -la /app && \
+    echo "=== /app/apps/web contents ===" && ls -la /app/apps/web || echo "no apps/web" && \
+    echo "=== server.js locations ===" && find /app -name "server.js" -maxdepth 6 2>/dev/null
+
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
