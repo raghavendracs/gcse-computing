@@ -1,22 +1,7 @@
 "use client";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useMe } from "~/hooks/api/auth";
 
 export default function LandingPage() {
-  const { user, isLoading } = useMe();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isLoading && user) {
-      router.replace("/dashboard");
-    }
-  }, [user, isLoading, router]);
-
-  if (isLoading) return null;
-  if (user) return null;
-
   return (
     <div className="min-h-screen bg-white">
       {/* Nav */}
