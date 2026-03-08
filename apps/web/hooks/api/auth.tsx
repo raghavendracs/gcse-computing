@@ -22,7 +22,7 @@ export const useLogout = () => {
   return trpc.auth.logout.useMutation({
     onSuccess: () => {
       utils.auth.me.reset();
-      router.push("/login");
+      router.push("/");
     },
   });
 };
