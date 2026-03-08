@@ -1,4 +1,4 @@
-import { Module, QuestionTemplate } from "@gcse/database";
+import { Module, QuestionTemplate, SpecTopic, seedEdexcelSpec, seedEdexcelModules } from "@gcse/database";
 import { seedModules } from "./modules.js";
 import { seedTemplates } from "./templates.js";
 
@@ -6,6 +6,15 @@ export async function runSeedIfEmpty(): Promise<void> {
   const count = await Module.countDocuments();
   if (count > 0) {
     console.log(`Seed already applied (${count} modules found) — skipping`);
+
+    // Spec topics may have been added after initial seed — check and fill
+    const specCount = await SpecTopic.countDocuments();
+    if (specCount === 0) {
+      console.log("Seeding Edexcel spec topics...");
+      await seedEdexcelSpec();
+      await seedEdexcelModules();
+    }
+
     return;
   }
 
@@ -30,4 +39,8 @@ export async function runSeedIfEmpty(): Promise<void> {
 
   await QuestionTemplate.insertMany(templatesToInsert);
   console.log(`Seeded ${templatesToInsert.length} question templates`);
+
+  await seedEdexcelSpec();
+  await seedEdexcelModules();
+  console.log("Seeded Edexcel spec topics");
 }

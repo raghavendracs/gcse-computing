@@ -19,3 +19,5 @@ export type { IHintEvent } from "./models/hint-event";
 export type { IStudySession } from "./models/study-session";
 export type { IStudentProgress, IModuleProgress, IWeakArea, IModuleWeakAreaFlags } from "./models/student-progress";
 export type { ISpecTopic } from "./models/spec-topic";
+
+export { seedEdexcelSpec, seedEdexcelModules } from "./seeds/edexcel-spec";
