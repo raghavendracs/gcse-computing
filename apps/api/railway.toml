@@ -1,9 +1,0 @@
-[build]
-builder = "nixpacks"
-buildCommand = "cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @gcse/database build && pnpm --filter @gcse/services build && pnpm --filter @gcse/trpc build && pnpm --filter @gcse/api build"
-
-[deploy]
-startCommand = "node apps/api/dist/index.js"
-healthcheckPath = "/health"
-healthcheckTimeout = 30
-restartPolicyType = "on_failure"
