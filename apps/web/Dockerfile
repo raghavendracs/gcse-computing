@@ -35,9 +35,7 @@ RUN pnpm --filter @gcse/database build && \
 COPY apps/web ./apps/web
 
 # NEXT_PUBLIC_* vars are baked into the JS bundle at build time.
-# The browser calls the API via localhost port-mapping, so http://localhost:3001
-# is correct for both local docker-compose and deployed setups where the API
-# is on the same host. Override via --build-arg if needed.
+# Browser tRPC calls go to this URL (should be the web service URL so cookies stay on web domain).
 ARG NEXT_PUBLIC_API_URL=http://localhost:3001
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
@@ -56,10 +54,6 @@ ENV HOSTNAME=0.0.0.0
 COPY --from=builder /app/apps/web/.next/standalone       ./
 COPY --from=builder /app/apps/web/.next/static           ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public                 ./apps/web/public
-
-RUN echo "=== /app contents ===" && ls -la /app && \
-    echo "=== /app/apps/web contents ===" && ls -la /app/apps/web || echo "no apps/web" && \
-    echo "=== server.js locations ===" && find /app -name "server.js" -maxdepth 6 2>/dev/null
 
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
