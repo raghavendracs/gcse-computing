@@ -14,19 +14,17 @@ export default function LandingPage() {
     }
   }, [user, isLoading, router]);
 
-  // While checking auth, show nothing (prevents flash)
-  if (isLoading) {
-    return null;
-  }
-
-  // If user is logged in, redirect is in progress
+  if (isLoading) return null;
   if (user) return null;
 
   return (
     <div className="min-h-screen bg-white">
       {/* Nav */}
       <nav className="border-b border-slate-100 px-4 h-14 flex items-center justify-between max-w-5xl mx-auto">
-        <span className="font-bold text-indigo-600 text-lg tracking-tight">GCSE CS</span>
+        <div className="flex items-center gap-2.5">
+          <img src="/logo.png" alt="Ace GCSE Computing" className="w-8 h-8 rounded-lg object-contain" />
+          <p className="font-bold text-slate-900 text-sm tracking-tight">Ace GCSE Computing</p>
+        </div>
         <div className="flex gap-3">
           <Link
             href="/login"
@@ -45,9 +43,11 @@ export default function LandingPage() {
 
       {/* Hero */}
       <section className="max-w-3xl mx-auto px-4 py-24 text-center">
+        <div className="flex justify-center mb-6">
+          <img src="/logo.png" alt="Ace GCSE Computing" className="w-18 h-18 rounded-2xl shadow-md object-contain" />
+        </div>
         <h1 className="text-5xl font-extrabold text-slate-900 leading-tight mb-4">
-          Ace your GCSE<br />
-          <span className="text-indigo-600">Computer Science</span>
+          Ace GCSE Computing
         </h1>
         <p className="text-xl text-slate-500 mb-10 max-w-xl mx-auto">
           AI-powered practice questions aligned to your exam board. Get instant feedback, track your progress, and target your weak areas.

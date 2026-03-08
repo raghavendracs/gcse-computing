@@ -18,10 +18,12 @@ const hintEventSchema = new Schema<IHintEvent>(
     hintLevel: { type: Number, enum: [1, 2, 3, 4, 5], required: true },
     hintText: { type: String, required: true },
     requestedAt: { type: Date, default: Date.now },
+    deletedAt: { type: Date, default: null, required: false },
   },
   { timestamps: true },
 );
 
+hintEventSchema.index({ deletedAt: 1 });
 hintEventSchema.index({ userId: 1, questionId: 1 });
 hintEventSchema.index({ userId: 1, moduleId: 1 });
 

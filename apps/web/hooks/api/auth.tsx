@@ -36,6 +36,15 @@ export const useCreateStudent = () => {
   });
 };
 
+export const useDeleteStudent = () => {
+  const utils = trpc.useUtils();
+  return trpc.auth.deleteStudent.useMutation({
+    onSuccess: async () => {
+      await utils.auth.getStudents.invalidate();
+    },
+  });
+};
+
 export const useUpdateProfile = () => {
   const utils = trpc.useUtils();
   return trpc.auth.updateProfile.useMutation({

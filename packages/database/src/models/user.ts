@@ -31,12 +31,14 @@ const userSchema = new Schema<IUser>(
       required: false,
     },
     lastLoginAt: { type: Date, required: false },
+    deletedAt: { type: Date, default: null, required: false },
   },
   { timestamps: true },
 );
 
 userSchema.index({ parentId: 1 });
 userSchema.index({ role: 1 });
+userSchema.index({ deletedAt: 1 });
 
 export const User = model<IUser>("users", userSchema);
 export default User;

@@ -9,6 +9,7 @@ export const progressRouter = router({
     .query(async ({ ctx }) => {
       const doc = await StudentProgress.findOne({
         userId: new Types.ObjectId(ctx.user!.userId),
+        deletedAt: null,
       });
       if (!doc) return null;
 
@@ -42,6 +43,7 @@ export const progressRouter = router({
     .query(async ({ ctx, input }) => {
       const doc = await StudentProgress.findOne({
         userId: new Types.ObjectId(ctx.user!.userId),
+        deletedAt: null,
       });
       if (!doc) return null;
 

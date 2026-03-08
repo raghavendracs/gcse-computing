@@ -6,13 +6,18 @@ import { Providers } from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "GCSE CS Revision",
-  description: "GCSE Computer Science revision and Python practice",
+  title: "Ace GCSE Computing",
+  description: "AI-powered GCSE Computer Science practice — exam board aligned questions, instant feedback, track your progress.",
+  icons: { icon: "/logo.png" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        {/* Prevent flash of wrong theme */}
+        <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('theme')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();` }} />
+      </head>
       <body className={inter.className}>
         <Providers>{children}</Providers>
       </body>

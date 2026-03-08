@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { Types } from "mongoose";
-import { QuestionAttempt, GeneratedQuestion } from "@gcse/database";
+import { QuestionAttempt, GeneratedQuestion, User } from "@gcse/database";
 import { authenticatedProcedure, router } from "../../trpc";
 import {
   listAttemptsInputModel,
@@ -14,9 +14,27 @@ export const historyRouter = router({
     .input(listAttemptsInputModel)
     .output(listAttemptsOutputModel)
     .query(async ({ ctx, input }) => {
-      const conditions: object[] = [{ userId: new Types.ObjectId(ctx.user!.userId) }];
+      // If studentId provided, verify the caller is the student's parent
+      let targetUserId = ctx.user!.userId;
+      if (input.studentId) {
+        const student = await User.findOne({
+          $and: [
+            { _id: new Types.ObjectId(input.studentId) },
+            { parentId: new Types.ObjectId(ctx.user!.userId) },
+            { deletedAt: null },
+          ],
+        });
+        if (!student) throw new TRPCError({ code: "FORBIDDEN", message: "Student not found" });
+        targetUserId = input.studentId;
+      }
+      const conditions: object[] = [
+        { userId: new Types.ObjectId(targetUserId) },
+        { deletedAt: null },
+      ];
 
-      if (input.moduleId) {
+      if (input.moduleIds && input.moduleIds.length > 0) {
+        conditions.push({ moduleId: { $in: input.moduleIds.map((id) => new Types.ObjectId(id)) } });
+      } else if (input.moduleId) {
         conditions.push({ moduleId: new Types.ObjectId(input.moduleId) });
       }
       if (input.continuationToken) {
@@ -56,10 +74,23 @@ export const historyRouter = router({
     .input(getAttemptDetailInputModel)
     .output(getAttemptDetailOutputModel)
     .query(async ({ ctx, input }) => {
+      let targetUserId = ctx.user!.userId;
+      if (input.studentId) {
+        const student = await User.findOne({
+          $and: [
+            { _id: new Types.ObjectId(input.studentId) },
+            { parentId: new Types.ObjectId(ctx.user!.userId) },
+            { deletedAt: null },
+          ],
+        });
+        if (!student) throw new TRPCError({ code: "FORBIDDEN", message: "Student not found" });
+        targetUserId = input.studentId;
+      }
       const attempt = await QuestionAttempt.findOne({
         $and: [
           { _id: new Types.ObjectId(input.attemptId) },
-          { userId: new Types.ObjectId(ctx.user!.userId) },
+          { userId: new Types.ObjectId(targetUserId) },
+          { deletedAt: null },
         ],
       });
       if (!attempt) throw new TRPCError({ code: "NOT_FOUND", message: "Attempt not found" });

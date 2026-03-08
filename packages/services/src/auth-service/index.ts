@@ -1,6 +1,13 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { User } from "@gcse/database";
+import {
+  User,
+  StudentProgress,
+  StudySession,
+  QuestionAttempt,
+  GeneratedQuestion,
+  HintEvent,
+} from "@gcse/database";
 import { Types } from "mongoose";
 import {
   LoginPayload,
@@ -44,7 +51,7 @@ class AuthService {
 
   async signupParent(input: SignupParentPayload) {
     const data = await signupParentPayload.parseAsync(input);
-    const existing = await User.findOne({ email: data.email.toLowerCase() });
+    const existing = await User.findOne({ email: data.email.toLowerCase(), deletedAt: null });
     if (existing) throw new Error("Email already registered");
 
     const passwordHash = await this.hashPassword(data.password);
@@ -61,7 +68,7 @@ class AuthService {
 
   async createStudent(input: SignupStudentPayload) {
     const data = await signupStudentPayload.parseAsync(input);
-    const existing = await User.findOne({ email: data.email.toLowerCase() });
+    const existing = await User.findOne({ email: data.email.toLowerCase(), deletedAt: null });
     if (existing) throw new Error("Email already registered");
 
     const passwordHash = await this.hashPassword(data.password);
@@ -79,14 +86,14 @@ class AuthService {
 
   async login(input: LoginPayload) {
     const data = await loginPayload.parseAsync(input);
-    const user = await User.findOne({ email: data.email.toLowerCase() });
+    const user = await User.findOne({ email: data.email.toLowerCase(), deletedAt: null });
     if (!user) throw new Error("Invalid email or password");
 
     const valid = await this.verifyPassword(data.password, user.passwordHash);
     if (!valid) throw new Error("Invalid email or password");
 
     await User.findOneAndUpdate(
-      { _id: user._id },
+      { _id: user._id, deletedAt: null },
       { $set: { lastLoginAt: new Date() } },
     );
 
@@ -100,7 +107,9 @@ class AuthService {
   }
 
   async getUserById(id: string) {
-    const user = await User.findOne({ _id: new Types.ObjectId(id) });
+    const user = await User.findOne({
+      $and: [{ _id: new Types.ObjectId(id) }, { deletedAt: null }],
+    });
     if (!user) throw new Error("User not found");
     return this.toPublicUser(user);
   }
@@ -115,7 +124,7 @@ class AuthService {
     if (Object.keys(updateFields).length === 0) throw new Error("No fields to update");
 
     const user = await User.findOneAndUpdate(
-      { _id: new Types.ObjectId(userId) },
+      { _id: new Types.ObjectId(userId), deletedAt: null },
       { $set: updateFields },
       { new: true },
     );
@@ -125,9 +134,35 @@ class AuthService {
 
   async getStudentsForParent(parentId: string) {
     const students = await User.find({
-      $and: [{ parentId: new Types.ObjectId(parentId) }, { role: "student" }],
+      $and: [
+        { parentId: new Types.ObjectId(parentId) },
+        { role: "student" },
+        { deletedAt: null },
+      ],
     });
     return students.map((s) => this.toPublicUser(s));
+  }
+
+  async deleteStudent(parentId: string, studentId: string) {
+    const student = await User.findOne({
+      $and: [
+        { _id: new Types.ObjectId(studentId) },
+        { parentId: new Types.ObjectId(parentId) },
+        { role: "student" },
+        { deletedAt: null },
+      ],
+    });
+    if (!student) throw new Error("Student not found or not owned by this parent");
+
+    const now = new Date();
+    const userIdObj = new Types.ObjectId(studentId);
+
+    await User.updateOne({ _id: userIdObj }, { $set: { deletedAt: now } });
+    await StudentProgress.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
+    await StudySession.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
+    await QuestionAttempt.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
+    await GeneratedQuestion.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
+    await HintEvent.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
   }
 
   private toPublicUser(user: any) {

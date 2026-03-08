@@ -52,10 +52,12 @@ const questionAttemptSchema = new Schema<IQuestionAttempt>(
     },
     hintsUsedCount: { type: Number, default: 0 },
     timeSpentSeconds: { type: Number, default: 0 },
+    deletedAt: { type: Date, default: null, required: false },
   },
   { timestamps: true },
 );
 
+questionAttemptSchema.index({ deletedAt: 1 });
 questionAttemptSchema.index({ userId: 1, moduleId: 1 });
 questionAttemptSchema.index({ userId: 1, questionId: 1 });
 questionAttemptSchema.index({ createdAt: -1 });

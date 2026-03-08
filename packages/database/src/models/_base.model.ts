@@ -4,4 +4,5 @@ export interface BaseMongodbSchema {
   _id: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date | null;
 }

@@ -44,7 +44,7 @@ export const questionsRouter = router({
       const question = await GeneratedQuestion.findOne({
         $and: [
           { _id: new Types.ObjectId(input.questionId) },
-          { userId: new Types.ObjectId(ctx.user!.userId) },
+          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
         ],
       });
       if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
@@ -52,7 +52,7 @@ export const questionsRouter = router({
       const priorCount = await QuestionAttempt.countDocuments({
         $and: [
           { questionId: question._id },
-          { userId: new Types.ObjectId(ctx.user!.userId) },
+          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
         ],
       });
 
@@ -171,7 +171,7 @@ export const questionsRouter = router({
           {
             $and: [
               { _id: new Types.ObjectId(input.sessionId) },
-              { userId: new Types.ObjectId(ctx.user!.userId) },
+              { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
             ],
           },
           { $addToSet: { questionIds: question._id } },
@@ -193,7 +193,7 @@ export const questionsRouter = router({
       const question = await GeneratedQuestion.findOne({
         $and: [
           { _id: new Types.ObjectId(input.questionId) },
-          { userId: new Types.ObjectId(ctx.user!.userId) },
+          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
         ],
       });
       if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
@@ -227,7 +227,7 @@ export const questionsRouter = router({
       const question = await GeneratedQuestion.findOne({
         $and: [
           { _id: new Types.ObjectId(input.questionId) },
-          { userId: new Types.ObjectId(ctx.user!.userId) },
+          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
         ],
       });
       if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
@@ -255,7 +255,7 @@ export const questionsRouter = router({
       const question = await GeneratedQuestion.findOne({
         $and: [
           { _id: new Types.ObjectId(input.questionId) },
-          { userId: new Types.ObjectId(ctx.user!.userId) },
+          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
         ],
       });
       if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });

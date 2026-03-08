@@ -3,7 +3,7 @@ import { BaseMongodbSchema } from "./_base.model";
 
 export interface IStudySession extends BaseMongodbSchema {
   userId: Types.ObjectId;
-  moduleId: Types.ObjectId;
+  moduleId?: Types.ObjectId;
   mode: "theory" | "coding" | "mixed" | "timed" | "review";
   startedAt: Date;
   endedAt?: Date;
@@ -18,7 +18,7 @@ export interface IStudySession extends BaseMongodbSchema {
 const studySessionSchema = new Schema<IStudySession>(
   {
     userId: { type: Schema.ObjectId, required: true, ref: "users" },
-    moduleId: { type: Schema.ObjectId, required: true, ref: "modules" },
+    moduleId: { type: Schema.ObjectId, required: false, ref: "modules" },
     mode: {
       type: String,
       enum: ["theory", "coding", "mixed", "timed", "review"],
@@ -32,11 +32,13 @@ const studySessionSchema = new Schema<IStudySession>(
       averageScore: { type: Number, default: 0 },
       hintsUsed: { type: Number, default: 0 },
     },
+    deletedAt: { type: Date, default: null, required: false },
   },
   { timestamps: true },
 );
 
 studySessionSchema.index({ userId: 1 });
+studySessionSchema.index({ deletedAt: 1 });
 studySessionSchema.index({ userId: 1, moduleId: 1 });
 studySessionSchema.index({ startedAt: -1 });
 

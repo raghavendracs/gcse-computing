@@ -66,11 +66,13 @@ const studentProgressSchema = new Schema<IStudentProgress>(
       },
     ],
     totalAttempts: { type: Number, default: 0 },
+    deletedAt: { type: Date, default: null, required: false },
   },
   { timestamps: true },
 );
 
 studentProgressSchema.index({ userId: 1 }, { unique: true });
+studentProgressSchema.index({ deletedAt: 1 });
 
 export const StudentProgress = model<IStudentProgress>(
   "student_progress",

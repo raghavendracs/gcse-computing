@@ -2,10 +2,10 @@ import { trpc } from "~/trpc/client";
 
 //#region  //*=========== Queries ===========
 
-export const useListAttempts = (filters?: { moduleId?: string; limit?: number }) => {
+export const useListAttempts = (filters?: { moduleId?: string; moduleIds?: string[]; studentId?: string; limit?: number; enabled?: boolean }) => {
   const query = trpc.history.listAttempts.useQuery(
-    { moduleId: filters?.moduleId, limit: filters?.limit ?? 20 },
-    { enabled: true },
+    { moduleId: filters?.moduleId, moduleIds: filters?.moduleIds, studentId: filters?.studentId, limit: filters?.limit ?? 20 },
+    { enabled: filters?.enabled ?? true },
   );
   return {
     attempts: query.data?.attempts ?? [],
@@ -17,9 +17,9 @@ export const useListAttempts = (filters?: { moduleId?: string; limit?: number })
   };
 };
 
-export const useGetAttemptDetail = (attemptId: string) => {
+export const useGetAttemptDetail = (attemptId: string, studentId?: string) => {
   const query = trpc.history.getAttemptDetail.useQuery(
-    { attemptId },
+    { attemptId, studentId },
     { enabled: !!attemptId },
   );
   return {

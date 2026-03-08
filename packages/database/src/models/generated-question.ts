@@ -60,10 +60,12 @@ const generatedQuestionSchema = new Schema<IGeneratedQuestion>(
     },
     usedInSession: { type: Boolean, default: false },
     nextReviewAt: { type: Date, required: false },
+    deletedAt: { type: Date, default: null, required: false },
   },
   { timestamps: true },
 );
 
+generatedQuestionSchema.index({ deletedAt: 1 });
 generatedQuestionSchema.index({ userId: 1, moduleId: 1 });
 generatedQuestionSchema.index({ userId: 1, usedInSession: 1 });
 generatedQuestionSchema.index({ createdAt: -1 });

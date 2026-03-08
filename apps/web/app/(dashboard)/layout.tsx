@@ -1,4 +1,5 @@
 import { Nav } from "~/components/nav";
+import { DashboardProviders } from "./providers";
 
 export default function DashboardLayout({
   children,
@@ -6,9 +7,11 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-slate-50">
-      <Nav />
-      <main className="max-w-6xl mx-auto px-4 py-8">{children}</main>
-    </div>
+    <DashboardProviders>
+      <div className="min-h-screen" style={{ backgroundColor: "var(--muted)" }}>
+        <Nav />
+        <main className="max-w-6xl mx-auto px-4 py-8">{children}</main>
+      </div>
+    </DashboardProviders>
   );
 }

@@ -9,6 +9,7 @@ import {
   signupInputModel,
   loginInputModel,
   createStudentInputModel,
+  deleteStudentInputModel,
   updateProfileInputModel,
   publicUserModel,
 } from "./models";
@@ -65,6 +66,14 @@ export const authRouter = router({
     .output(z.array(publicUserModel))
     .query(async ({ ctx }) => {
       return authService.getStudentsForParent(ctx.user!.userId);
+    }),
+
+  deleteStudent: parentOnlyProcedure
+    .input(deleteStudentInputModel)
+    .output(z.object({ success: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      await authService.deleteStudent(ctx.user!.userId, input.studentId);
+      return { success: true };
     }),
 
   updateProfile: authenticatedProcedure

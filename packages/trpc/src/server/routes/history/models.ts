@@ -2,7 +2,9 @@ import { z } from "zod";
 
 export const listAttemptsInputModel = z.object({
   moduleId: z.string().optional(),
-  limit: z.number().int().min(1).max(50).default(20),
+  moduleIds: z.array(z.string()).optional(),
+  studentId: z.string().optional(), // parent can pass a student's id to view their history
+  limit: z.number().int().min(1).max(200).default(20),
   continuationToken: z.string().optional(),
 });
 
@@ -30,6 +32,7 @@ export const listAttemptsOutputModel = z.object({
 
 export const getAttemptDetailInputModel = z.object({
   attemptId: z.string(),
+  studentId: z.string().optional(), // parent can pass student's id
 });
 
 export const getAttemptDetailOutputModel = z.object({

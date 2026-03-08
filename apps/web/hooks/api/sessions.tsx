@@ -11,3 +11,42 @@ export const useEndSession = () => {
 };
 
 //#endregion  //*======== Mutations ===========
+
+//#region  //*=========== Queries ===========
+
+export const useListSessions = (opts?: { limit?: number; enabled?: boolean }) => {
+  const query = trpc.sessions.listSessions.useQuery(
+    { limit: opts?.limit ?? 20 },
+    { enabled: opts?.enabled ?? true },
+  );
+  return {
+    sessions: query.data?.sessions ?? [],
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    isError: query.isError,
+    refetch: query.refetch,
+  };
+};
+
+export const useListStudentSessions = (studentId: string | undefined) => {
+  const query = trpc.sessions.listStudentSessions.useQuery(
+    { studentId: studentId ?? "", limit: 20 },
+    { enabled: !!studentId },
+  );
+  return {
+    sessions: query.data?.sessions ?? [],
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    isError: query.isError,
+  };
+};
+
+export const useGetTotalTimeSpent = () => {
+  const query = trpc.sessions.getTotalTimeSpent.useQuery();
+  return {
+    totalSeconds: query.data?.totalSeconds ?? 0,
+    isLoading: query.isLoading,
+  };
+};
+
+//#endregion  //*======== Queries ===========

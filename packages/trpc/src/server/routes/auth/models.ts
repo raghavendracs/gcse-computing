@@ -19,6 +19,10 @@ export const createStudentInputModel = z.object({
   examBoardPreference: z.enum(["OCR", "AQA", "Edexcel"]).default("OCR"),
 });
 
+export const deleteStudentInputModel = z.object({
+  studentId: z.string(),
+});
+
 export const updateProfileInputModel = z.object({
   fullName: z.string().min(1).optional(),
   examBoardPreference: z.enum(["OCR", "AQA", "Edexcel"]).optional(),
