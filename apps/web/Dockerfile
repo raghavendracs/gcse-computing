@@ -53,9 +53,9 @@ ENV HOSTNAME=0.0.0.0
 
 # next build --standalone outputs the entire server + minimal node_modules
 # into .next/standalone. server.js is always at the root of standalone.
-COPY --from=builder /app/apps/web/.next/standalone ./
-COPY --from=builder /app/apps/web/.next/static      ./.next/static
-COPY --from=builder /app/apps/web/public            ./public
+COPY --from=builder /app/apps/web/.next/standalone       ./
+COPY --from=builder /app/apps/web/.next/static           ./apps/web/.next/static
+COPY --from=builder /app/apps/web/public                 ./apps/web/public
 
 EXPOSE 3000
-CMD ["node", "server.js"]
+CMD ["node", "apps/web/server.js"]
