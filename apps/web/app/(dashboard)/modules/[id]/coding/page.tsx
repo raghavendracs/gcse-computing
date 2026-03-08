@@ -82,7 +82,7 @@ export default function CodingPage() {
     stopTimer();
 
     try {
-      const q = await generateQuestion.mutateAsync({ moduleId, difficulty: "medium" });
+      const q = await generateQuestion.mutateAsync({ moduleId, difficulty: "medium", mode: "coding" });
       setQuestion(q as unknown as Question);
       startTimer();
     } catch {

@@ -5,6 +5,7 @@ export const generateQuestionInput = z.object({
   userId: z.string(),
   difficulty: z.enum(["easy", "medium", "hard"]).optional().default("medium"),
   examBoard: z.enum(["OCR", "AQA", "Edexcel"]).optional(),
+  mode: z.enum(["theory", "coding"]).optional(),
 });
 
 // Use z.input to get the type before defaults are applied (difficulty is optional)

@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { Types } from "mongoose";
-import { QuestionAttempt } from "@gcse/database";
+import { QuestionAttempt, GeneratedQuestion } from "@gcse/database";
 import { authenticatedProcedure, router } from "../../trpc";
 import {
   listAttemptsInputModel,
@@ -64,6 +64,9 @@ export const historyRouter = router({
       });
       if (!attempt) throw new TRPCError({ code: "NOT_FOUND", message: "Attempt not found" });
 
+      // Fetch question for enriched context
+      const question = await GeneratedQuestion.findOne({ _id: attempt.questionId });
+
       return {
         id: attempt._id.toString(),
         questionId: attempt.questionId.toString(),
@@ -79,6 +82,10 @@ export const historyRouter = router({
           strengths: attempt.assessment.strengths,
           confidence: attempt.assessment.confidence,
         },
+        questionText: question?.questionText,
+        modelAnswer: question?.modelAnswer,
+        markSchemePoints: question?.markSchemePoints,
+        hints: question?.hints,
         hintsUsedCount: attempt.hintsUsedCount,
         timeSpentSeconds: attempt.timeSpentSeconds,
         createdAt: attempt.createdAt.toString(),

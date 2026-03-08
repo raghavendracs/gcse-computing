@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { Types } from "mongoose";
-import { GeneratedQuestion, HintEvent, QuestionAttempt, StudySession } from "@gcse/database";
-import { QuestionGenerationService, TheoryMarkingService, CodeExecutionService, CodingAssessmentService, HintGenerationService } from "@gcse/services";
+import { GeneratedQuestion, HintEvent, Module, QuestionAttempt, StudySession } from "@gcse/database";
+import { QuestionGenerationService, TheoryMarkingService, CodeExecutionService, CodingAssessmentService, HintGenerationService, ProgressService } from "@gcse/services";
 import { studentProcedure, router } from "../../trpc";
 import {
   generateQuestionInputModel,
@@ -21,6 +21,7 @@ const markingSvc = new TheoryMarkingService();
 const codeExecSvc = new CodeExecutionService();
 const codingAssessmentSvc = new CodingAssessmentService();
 const hintGenSvc = new HintGenerationService();
+const progressSvc = new ProgressService();
 
 export const questionsRouter = router({
   generateQuestion: studentProcedure
@@ -32,6 +33,7 @@ export const questionsRouter = router({
         userId: ctx.user!.userId,
         difficulty: input.difficulty,
         examBoard: input.examBoard,
+        mode: input.mode,
       });
     }),
 
@@ -136,6 +138,33 @@ export const questionsRouter = router({
         { _id: question._id },
         { $set: { usedInSession: true } },
       );
+
+      // Fetch module name for progress tracking
+      const mod = await Module.findOne({ _id: question.moduleId });
+
+      // Update student progress (fire-and-forget — don't block response)
+      if (mod) {
+        progressSvc.updateAfterAttempt({
+          userId: ctx.user!.userId,
+          moduleId: question.moduleId.toString(),
+          moduleName: mod.moduleName,
+          awardedMarks: assessmentResult.awardedMarks,
+          maxMarks: assessmentResult.maxMarks,
+          hintsUsed: input.hintsUsed,
+          submissionType: question.answerFormat === "code" ? "code" : "text",
+          hadError: codingAnalysis?.errorCategory != null,
+        }).catch(() => { /* non-blocking */ });
+      }
+
+      // Spaced repetition: retire correctly-answered questions for 7 days
+      if (assessmentResult.awardedMarks === assessmentResult.maxMarks) {
+        const reviewAt = new Date();
+        reviewAt.setDate(reviewAt.getDate() + 7);
+        await GeneratedQuestion.updateOne(
+          { _id: question._id },
+          { $set: { nextReviewAt: reviewAt } },
+        );
+      }
 
       if (input.sessionId) {
         await StudySession.updateOne(

@@ -4,6 +4,8 @@ import { modulesRouter } from "./routes/modules/route";
 import { questionsRouter } from "./routes/questions/route";
 import { sessionsRouter } from "./routes/sessions/route";
 import { historyRouter } from "./routes/history/route";
+import { progressRouter } from "./routes/progress/route";
+import { curriculumRouter } from "./routes/curriculum/route";
 
 export const appRouter = router({
   auth: authRouter,
@@ -11,6 +13,8 @@ export const appRouter = router({
   questions: questionsRouter,
   sessions: sessionsRouter,
   history: historyRouter,
+  progress: progressRouter,
+  curriculum: curriculumRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -4,6 +4,17 @@ import { Types } from "mongoose";
 import { getModelId } from "../ai/model-map";
 import { type GenerateQuestionInput, type GeneratedQuestionOutput } from "./models";
 
+const THEORY_QUESTION_TYPES = [
+  "multiple_choice",
+  "short_answer",
+  "extended",
+  "trace_table",
+  "fill_gap",
+  "predict_output",
+] as const;
+
+const CODING_QUESTION_TYPES = ["coding", "fix_code"] as const;
+
 class QuestionGenerationService {
   private client: Anthropic;
 
@@ -12,17 +23,33 @@ class QuestionGenerationService {
   }
 
   async generateQuestion(input: GenerateQuestionInput): Promise<GeneratedQuestionOutput> {
-    const { moduleId, userId, difficulty = "medium", examBoard } = input;
+    const { moduleId, userId, difficulty = "medium", examBoard, mode } = input;
 
     // 1. Return cached unused question if available
     const cacheConditions: object[] = [
       { userId: Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : userId },
       { moduleId: Types.ObjectId.isValid(moduleId) ? new Types.ObjectId(moduleId) : moduleId },
       { difficulty },
-      { usedInSession: false },
+      {
+        $or: [
+          { usedInSession: false },
+          { usedInSession: true, nextReviewAt: { $exists: true, $lte: new Date() } },
+        ],
+      },
+      {
+        $or: [
+          { nextReviewAt: { $exists: false } },
+          { nextReviewAt: { $lte: new Date() } },
+        ],
+      },
     ];
     if (examBoard) {
       cacheConditions.push({ "metadata.examBoard": { $in: [examBoard, "generic"] } });
+    }
+    if (mode === "theory") {
+      cacheConditions.push({ answerFormat: "free_text" });
+    } else if (mode === "coding") {
+      cacheConditions.push({ answerFormat: "code" });
     }
     const cached = await GeneratedQuestion.findOne({ $and: cacheConditions });
     if (cached) return this.toOutput(cached);
@@ -33,15 +60,19 @@ class QuestionGenerationService {
     });
     if (!mod) throw new Error("Module not found");
 
-    // 3. Find a matching template
-    const template = await QuestionTemplate.findOne({
-      $and: [
-        {
-          moduleId: Types.ObjectId.isValid(moduleId) ? new Types.ObjectId(moduleId) : moduleId,
-        },
-        { active: true },
-      ],
-    });
+    // 3. Find a matching template (filtered by mode)
+    const templateConditions: object[] = [
+      {
+        moduleId: Types.ObjectId.isValid(moduleId) ? new Types.ObjectId(moduleId) : moduleId,
+      },
+      { active: true },
+    ];
+    if (mode === "theory") {
+      templateConditions.push({ questionType: { $in: THEORY_QUESTION_TYPES } });
+    } else if (mode === "coding") {
+      templateConditions.push({ questionType: { $in: CODING_QUESTION_TYPES } });
+    }
+    const template = await QuestionTemplate.findOne({ $and: templateConditions });
 
     // 4. Resolve AI model from user/parent preference
     const modelId = await this.resolveModelForUser(userId);
@@ -50,12 +81,14 @@ class QuestionGenerationService {
     const generated = await this.callAI(mod, template, difficulty, examBoard, modelId);
 
     // 6. Save and return
-    const isCoding = template?.questionType === "coding";
+    const isCoding =
+      mode === "coding" ||
+      (!mode && (template?.questionType === "coding" || template?.questionType === "fix_code"));
     const doc = await GeneratedQuestion.insertOne({
       moduleId: Types.ObjectId.isValid(moduleId) ? new Types.ObjectId(moduleId) : moduleId,
       templateId: template ? template._id : undefined,
       userId: Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : userId,
-      questionType: template?.questionType ?? "short_answer",
+      questionType: template?.questionType ?? (isCoding ? "coding" : "short_answer"),
       difficulty,
       questionText: generated.questionText,
       answerFormat: isCoding ? "code" : "free_text",
@@ -103,7 +136,8 @@ class QuestionGenerationService {
     misconceptionNotes: string[];
     testCases: { input: string; expectedOutput: string; hidden: boolean }[];
   }> {
-    const isCoding = template?.questionType === "coding";
+    const isCoding =
+      template?.questionType === "coding" || template?.questionType === "fix_code";
 
     const systemPrompt = isCoding
       ? `You are a GCSE Computer Science examiner. Generate Python coding questions in valid JSON only.
@@ -125,7 +159,8 @@ Rules:
 - testCases: minimum 2 visible (hidden: false) + 1 hidden (hidden: true)
 - number of markSchemePoints must equal maxMarks
 - hints: exactly 5, progressively more helpful; hint 5 is pseudocode/structure, never full solution
-- modelAnswer: working Python code`
+- modelAnswer: working Python code
+- IMPORTANT: The question MUST require the student to write a Python program. Do not ask theory-only or explanation questions.`
       : `You are a GCSE Computer Science examiner. Generate exam-style questions in valid JSON only.
 Output ONLY a JSON object with exactly these fields:
 {
@@ -140,7 +175,8 @@ Rules:
 - hints must have exactly 5 items, progressively more helpful; hint 5 is near-solution scaffolding, never the full answer
 - number of markSchemePoints must equal maxMarks (one point per mark)
 - questionText must be self-contained and appropriate for ${difficulty} difficulty
-- modelAnswer must address all mark scheme points`;
+- modelAnswer must address all mark scheme points
+- IMPORTANT: Do NOT ask the student to write any programs or code. Questions must test conceptual understanding, recall, and analysis only. The student answers in plain text, not code.`;
 
     const templateContext = template
       ? `Base template: "${template.promptTemplate}"

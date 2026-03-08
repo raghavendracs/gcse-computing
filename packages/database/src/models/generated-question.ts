@@ -26,6 +26,7 @@ export interface IGeneratedQuestion extends BaseMongodbSchema {
     misconceptionNotes: string[];
   };
   usedInSession: boolean;
+  nextReviewAt?: Date;
 }
 
 const generatedQuestionSchema = new Schema<IGeneratedQuestion>(
@@ -58,6 +59,7 @@ const generatedQuestionSchema = new Schema<IGeneratedQuestion>(
       misconceptionNotes: [{ type: String }],
     },
     usedInSession: { type: Boolean, default: false },
+    nextReviewAt: { type: Date, required: false },
   },
   { timestamps: true },
 );
@@ -65,6 +67,7 @@ const generatedQuestionSchema = new Schema<IGeneratedQuestion>(
 generatedQuestionSchema.index({ userId: 1, moduleId: 1 });
 generatedQuestionSchema.index({ userId: 1, usedInSession: 1 });
 generatedQuestionSchema.index({ createdAt: -1 });
+generatedQuestionSchema.index({ userId: 1, nextReviewAt: 1 });
 
 export const GeneratedQuestion = model<IGeneratedQuestion>(
   "generated_questions",

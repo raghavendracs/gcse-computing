@@ -47,6 +47,11 @@ export const getAttemptDetailOutputModel = z.object({
     strengths: z.array(z.string()),
     confidence: z.number(),
   }),
+  // Enriched from generated_questions
+  questionText: z.string().optional(),
+  modelAnswer: z.string().optional(),
+  markSchemePoints: z.array(z.string()).optional(),
+  hints: z.array(z.string()).optional(),
   hintsUsedCount: z.number(),
   timeSpentSeconds: z.number(),
   createdAt: z.string(),

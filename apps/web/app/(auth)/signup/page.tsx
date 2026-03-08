@@ -47,7 +47,7 @@ export default function SignupPage() {
             type="text"
             value={form.fullName}
             onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-900"
             required
           />
         </div>
@@ -59,7 +59,7 @@ export default function SignupPage() {
             type="email"
             value={form.email}
             onChange={(e) => setForm({ ...form, email: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-900"
             required
             autoComplete="email"
           />
@@ -72,7 +72,7 @@ export default function SignupPage() {
             type="password"
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm text-slate-900"
             required
             minLength={8}
             autoComplete="new-password"
@@ -91,7 +91,7 @@ export default function SignupPage() {
                 aiModelPreference: e.target.value as AIPreference,
               })
             }
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white"
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white text-slate-900"
           >
             <option value="accurate">Accurate (best quality)</option>
             <option value="balanced">Balanced (recommended)</option>
