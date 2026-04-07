@@ -26,6 +26,7 @@ export interface IGeneratedQuestion extends BaseMongodbSchema {
     misconceptionNotes: string[];
   };
   usedInSession: boolean;
+  supportReady: boolean;
   nextReviewAt?: Date;
 }
 
@@ -59,6 +60,7 @@ const generatedQuestionSchema = new Schema<IGeneratedQuestion>(
       misconceptionNotes: [{ type: String }],
     },
     usedInSession: { type: Boolean, default: false },
+    supportReady: { type: Boolean, default: false },
     nextReviewAt: { type: Date, required: false },
     deletedAt: { type: Date, default: null, required: false },
   },

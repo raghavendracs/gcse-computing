@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useRef, useState, useCallback, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useRef, useState, useCallback, type ReactNode } from "react";
 import { trpc } from "~/trpc/client";
 
 interface PracticeTimerContextType {
@@ -29,13 +29,10 @@ const PracticeTimerContext = createContext<PracticeTimerContextType>({
 });
 
 export function PracticeTimerProvider({ children }: { children: ReactNode }) {
-  const [timeSpent, setTimeSpent] = useState(0);
-  const [timerReady, setTimerReady] = useState(false);
+  const [timerDelta, setTimerDelta] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
-  const [totalAttempts, setTotalAttempts] = useState(0);
   const [activeEndSession, setActiveEndSession] = useState<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const initializedRef = useRef(false);
 
   const { data: totalTimeData, isError, isSuccess } = trpc.sessions.getTotalTimeSpent.useQuery(undefined, {
     staleTime: Infinity,
@@ -44,18 +41,9 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
     retry: 1,
   });
 
-  useEffect(() => {
-    if (initializedRef.current) return;
-    if (isSuccess && totalTimeData !== undefined) {
-      initializedRef.current = true;
-      setTimeSpent(totalTimeData.totalSeconds);
-      setTotalAttempts(totalTimeData.totalAttempts);
-      setTimerReady(true);
-    } else if (isError) {
-      initializedRef.current = true;
-      setTimerReady(true);
-    }
-  }, [isSuccess, isError, totalTimeData]);
+  const timerReady = isSuccess || isError;
+  const timeSpent = (totalTimeData?.totalSeconds ?? 0) + timerDelta;
+  const totalAttempts = totalTimeData?.totalAttempts ?? 0;
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -68,7 +56,7 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
   const startTimer = useCallback(() => {
     if (timerRef.current) return;
     setIsRunning(true);
-    timerRef.current = setInterval(() => setTimeSpent((t) => t + 1), 1000);
+    timerRef.current = setInterval(() => setTimerDelta((d) => d + 1), 1000);
   }, []);
 
   const resetTimer = useCallback(() => {
@@ -76,7 +64,7 @@ export function PracticeTimerProvider({ children }: { children: ReactNode }) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    setTimeSpent(0);
+    setTimerDelta(0);
     setIsRunning(false);
   }, []);
 

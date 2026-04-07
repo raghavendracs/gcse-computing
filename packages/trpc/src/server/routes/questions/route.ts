@@ -6,6 +6,8 @@ import { studentProcedure, router } from "../../trpc";
 import {
   generateQuestionInputModel,
   generatedQuestionOutputModel,
+  generateQuestionSupportInputModel,
+  generateQuestionSupportOutputModel,
   submitAnswerInputModel,
   submitAnswerOutputModel,
   requestHintInputModel,
@@ -35,6 +37,22 @@ export const questionsRouter = router({
         examBoard: input.examBoard,
         mode: input.mode,
       });
+    }),
+
+  generateQuestionSupport: studentProcedure
+    .input(generateQuestionSupportInputModel)
+    .output(generateQuestionSupportOutputModel)
+    .mutation(async ({ ctx, input }) => {
+      // Verify ownership before generating support
+      const question = await GeneratedQuestion.findOne({
+        $and: [
+          { _id: new Types.ObjectId(input.questionId) },
+          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
+        ],
+      });
+      if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
+
+      return questionGenSvc.generateQuestionSupport(input.questionId);
     }),
 
   submitAnswer: studentProcedure

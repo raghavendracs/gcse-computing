@@ -226,38 +226,43 @@ describe("QuestionGenerationService", () => {
     expect(result.testCases.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("throws when AI returns fewer than 3 test cases for a coding question", async () => {
-    const codingTemplate = {
-      _id: { toString: () => "tmpl3" },
+  it("generateQuestionSupport throws when AI returns fewer than 3 test cases for a coding question", async () => {
+    const partialQuestion = {
+      _id: { toString: () => "q-partial" },
+      moduleId: { toString: () => "mod1" },
+      templateId: null,
+      userId: { toString: () => "user1" },
       questionType: "coding",
-      promptTemplate: "Write a Python function.",
-      rubric: {
-        maxMarks: 4,
-        acceptedConcepts: ["function"],
-        commonMisconceptions: ["syntax errors"],
-      },
+      difficulty: "easy",
+      questionText: "Write a function.",
+      answerFormat: "code",
+      maxMarks: 4,
+      markSchemePoints: [],
+      modelAnswer: "",
+      hints: [],
+      testCases: [],
+      metadata: { examBoard: "generic", topicName: "Sequence and Selection", misconceptionNotes: [] },
+      supportReady: false,
+      deletedAt: null,
     };
 
-    const insufficientTestCasesResponse = {
-      questionText: "Write a function.",
-      maxMarks: 4,
-      testCases: [{ input: "1", expectedOutput: "1", hidden: false }],
+    const insufficientSupportResponse = {
       markSchemePoints: ["p1", "p2", "p3", "p4"],
       modelAnswer: "def f(n): return n",
-      hints: ["h1", "h2", "h3", "h4", "h5"],
+      hints: ["h1", "h2", "h3"],
+      testCases: [{ input: "1", expectedOutput: "1", hidden: false }],
       misconceptionNotes: [],
     };
 
-    (GeneratedQuestion.findOne as any).mockResolvedValue(null);
+    (GeneratedQuestion.findOne as any).mockResolvedValue(partialQuestion);
     (Module.findOne as any).mockResolvedValue(mockModule);
-    (QuestionTemplate.findOne as any).mockResolvedValue(codingTemplate);
     (User.findOne as any).mockResolvedValue({ role: "student", parentId: null });
     mockClient.messages.create.mockResolvedValue({
-      content: [{ type: "text", text: JSON.stringify(insufficientTestCasesResponse) }],
+      content: [{ type: "text", text: JSON.stringify(insufficientSupportResponse) }],
     });
 
     await expect(
-      svc.generateQuestion({ moduleId: "mod1", userId: "user1", difficulty: "easy" }),
-    ).rejects.toThrow("Invalid coding question: insufficient test cases from AI");
+      svc.generateQuestionSupport("q-partial"),
+    ).rejects.toThrow("Invalid coding support: insufficient test cases from AI");
   });
 });

@@ -25,6 +25,7 @@ export const generatedQuestionOutput = z.object({
   testCases: z.array(
     z.object({ input: z.string(), expectedOutput: z.string(), hidden: z.boolean() }),
   ),
+  supportReady: z.boolean(),
   metadata: z.object({
     examBoard: z.string(),
     topicName: z.string(),

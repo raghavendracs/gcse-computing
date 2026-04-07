@@ -39,10 +39,8 @@ async function handler(request: NextRequest) {
   });
 
   // Forward Set-Cookie headers properly (Node 20+ getSetCookie())
-  const setCookies: string[] =
-    typeof (apiResponse.headers as any).getSetCookie === "function"
-      ? (apiResponse.headers as any).getSetCookie()
-      : [];
+  const responseHeaders = apiResponse.headers as unknown as { getSetCookie?: () => string[] };
+  const setCookies: string[] = typeof responseHeaders.getSetCookie === "function" ? responseHeaders.getSetCookie() : [];
 
   for (const cookieStr of setCookies) {
     const [nameValue, ...attrs] = cookieStr.split(";").map((s) => s.trim());

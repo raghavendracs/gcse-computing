@@ -6,6 +6,10 @@ export const useGenerateQuestion = () => {
   return trpc.questions.generateQuestion.useMutation();
 };
 
+export const useGenerateQuestionSupport = () => {
+  return trpc.questions.generateQuestionSupport.useMutation();
+};
+
 export const useSubmitAnswer = () => {
   const utils = trpc.useUtils();
   return trpc.questions.submitAnswer.useMutation({

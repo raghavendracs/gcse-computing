@@ -1,6 +1,6 @@
 "use client";
-import { useState, useMemo } from "react";
-import { BookOpen, Code2, Trash2, History, InboxIcon, Lightbulb, Play, Clock, ChevronDown, ChevronRight, ChevronLeft, Eye, X, Loader2 } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { BookOpen, Code2, Trash2, History, InboxIcon, Lightbulb, Clock, ChevronDown, ChevronRight, ChevronLeft, X, Loader2 } from "lucide-react";
 import { useMe, useStudents, useCreateStudent, useDeleteStudent } from "~/hooks/api/auth";
 import { useGetCurriculum } from "~/hooks/api/curriculum";
 import { useListAttempts, useGetAttemptDetail } from "~/hooks/api/history";
@@ -122,20 +122,6 @@ function formatDuration(seconds: number) {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
-function formatTime(s: number) {
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
-
-function splitTime(s: number) {
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return {
-    hours: String(h).padStart(2, "0"),
-    minutes: String(m).padStart(2, "0"),
-    seconds: String(sec).padStart(2, "0"),
-  };
-}
 
 function tableDateParts(iso: string) {
   const d = new Date(iso);
@@ -256,10 +242,111 @@ function SessionsPanel({ sessions, isLoading, page, onPage }: {
   );
 }
 
+function AttemptDetailExpanded({ attemptId }: { attemptId: string }) {
+  const { attempt, isLoading } = useGetAttemptDetail(attemptId);
+
+  if (isLoading) {
+    return (
+      <tr>
+        <td colSpan={7} className="px-6 py-4">
+          <div className="space-y-2 animate-pulse">
+            {[1,2,3].map(i => <div key={i} className="h-4 rounded" style={{ backgroundColor: "var(--accent)" }} />)}
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  if (!attempt) return null;
+
+  const isCode = attempt.submissionType === "code";
+
+  return (
+    <tr>
+      <td colSpan={7} style={{ backgroundColor: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
+        <div className="px-6 py-4 space-y-4">
+          {/* Question */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--muted-foreground)" }}>Question</p>
+            <p className="text-sm whitespace-pre-wrap" style={{ color: "var(--foreground)" }}>{attempt.questionText}</p>
+          </div>
+
+          {/* Your answer */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--muted-foreground)" }}>Your answer</p>
+            {isCode ? (
+              <pre className="text-xs p-3 rounded-lg overflow-x-auto" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)", fontFamily: "monospace" }}>
+                {attempt.submittedAnswer}
+              </pre>
+            ) : (
+              <p className="text-sm whitespace-pre-wrap" style={{ color: "var(--foreground)" }}>{attempt.submittedAnswer}</p>
+            )}
+          </div>
+
+          {/* Strengths */}
+          {attempt.assessment?.strengths?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "#16a34a" }}>Strengths</p>
+              <ul className="space-y-0.5">
+                {attempt.assessment.strengths.map((s: string, i: number) => (
+                  <li key={i} className="text-sm flex gap-2" style={{ color: "var(--foreground)" }}>
+                    <span style={{ color: "#16a34a" }}>✓</span>{s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Missing points */}
+          {attempt.assessment?.missingPoints?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "#dc2626" }}>Missing points</p>
+              <ul className="space-y-0.5">
+                {attempt.assessment.missingPoints.map((p: string, i: number) => (
+                  <li key={i} className="text-sm flex gap-2" style={{ color: "var(--foreground)" }}>
+                    <span style={{ color: "#dc2626" }}>✗</span>{p}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Model answer */}
+          {attempt.modelAnswer && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--muted-foreground)" }}>Model answer</p>
+              {isCode ? (
+                <pre className="text-xs p-3 rounded-lg overflow-x-auto" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)", fontFamily: "monospace" }}>
+                  {attempt.modelAnswer}
+                </pre>
+              ) : (
+                <p className="text-sm whitespace-pre-wrap" style={{ color: "var(--foreground)" }}>{attempt.modelAnswer}</p>
+              )}
+            </div>
+          )}
+
+          {/* Mark scheme */}
+          {(attempt.markSchemePoints?.length ?? 0) > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--muted-foreground)" }}>Mark scheme</p>
+              <ul className="space-y-0.5">
+                {attempt.markSchemePoints!.map((pt: string, i: number) => (
+                  <li key={i} className="text-sm" style={{ color: "var(--muted-foreground)" }}>• {pt}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function AttemptsPanel({ attempts, isLoading, page, onPage, moduleToTopic }: {
   attempts: AttemptItem[]; isLoading: boolean; page: number; onPage: (p: number) => void;
   moduleToTopic: Map<string, { title: string; code: string; groupTitle: string }>;
 }) {
+  const [expandedAttemptId, setExpandedAttemptId] = useState<string | null>(null);
   if (isLoading) return (
     <div className="p-5 space-y-2 animate-pulse">
       {[1,2,3,4,5].map((i) => <div key={i} className="h-14 rounded" style={{ backgroundColor: "var(--accent)" }} />)}
@@ -285,6 +372,7 @@ function AttemptsPanel({ attempts, isLoading, page, onPage, moduleToTopic }: {
                 <th className="py-3 text-xs font-normal text-right" style={{ color: "var(--muted-foreground)", width: "14%" }}>Score</th>
                 <th className="py-3 text-xs font-normal text-right" style={{ color: "var(--muted-foreground)", width: "10%" }}>Hints</th>
                 <th className="py-3 text-xs font-normal text-right" style={{ color: "var(--muted-foreground)", width: "10%" }}>Time</th>
+                <th className="py-3 text-xs font-normal text-right" style={{ color: "var(--muted-foreground)", width: "4%" }}></th>
               </tr>
             </thead>
             <tbody>
@@ -295,7 +383,8 @@ function AttemptsPanel({ attempts, isLoading, page, onPage, moduleToTopic }: {
                 const scoreBg = pct >= 0.7 ? "#f0fdf4" : pct >= 0.5 ? "#fffbeb" : "#fef2f2";
                 const { date, time } = tableDateParts(a.createdAt);
                 return (
-                  <tr key={a.id} className="group" style={{ borderBottom: "1px solid var(--border)" }}>
+                  <>
+                  <tr key={a.id} className="group cursor-pointer" style={{ borderBottom: expandedAttemptId === a.id ? "none" : "1px solid var(--border)" }} onClick={() => setExpandedAttemptId(prev => prev === a.id ? null : a.id)}>
                     <td className="py-4 group-hover:opacity-80 transition-opacity">
                       <p className="text-xs font-mono" style={{ color: "var(--foreground)" }}>{date}</p>
                       <p className="text-xs font-mono mt-0.5" style={{ color: "var(--muted-foreground)" }}>{time}</p>
@@ -318,7 +407,18 @@ function AttemptsPanel({ attempts, isLoading, page, onPage, moduleToTopic }: {
                     <td className="py-4 text-right text-sm font-mono" style={{ color: "var(--muted-foreground)" }}>
                       {a.timeSpentSeconds > 0 ? formatDuration(a.timeSpentSeconds) : "—"}
                     </td>
+                    <td className="py-4 pl-2">
+                      <ChevronDown
+                        className="w-3.5 h-3.5 transition-transform"
+                        style={{
+                          color: "var(--muted-foreground)",
+                          transform: expandedAttemptId === a.id ? "rotate(180deg)" : "rotate(0deg)",
+                        }}
+                      />
+                    </td>
                   </tr>
+                  {expandedAttemptId === a.id && <AttemptDetailExpanded key={`detail-${a.id}`} attemptId={a.id} />}
+                  </>
                 );
               })}
             </tbody>
@@ -497,7 +597,7 @@ function AttemptDetailRow({ attempt, studentId }: { attempt: AttemptItem; studen
                 </div>
               )}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: "var(--muted-foreground)" }}>Student's answer</p>
+                <p className="text-xs font-semibold uppercase tracking-wide mb-1.5" style={{ color: "var(--muted-foreground)" }}>Student&apos;s answer</p>
                 <div className="rounded-lg px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)", fontFamily: attempt.submissionType === "code" ? "monospace" : "inherit" }}>
                   {detail.submittedAnswer || <span style={{ color: "var(--muted-foreground)" }}>No answer submitted</span>}
                 </div>
@@ -785,6 +885,8 @@ export default function DashboardPage() {
   const [rightPanelView, setRightPanelView] = useState<null | "sessions" | "attempts">(null);
   const [sessionsPage, setSessionsPage] = useState(1);
   const [attemptsPage, setAttemptsPage] = useState(1);
+  const [hasAutoStarted, setHasAutoStarted] = useState(false);
+  const [isAutoTopic, setIsAutoTopic] = useState(false);
 
   const { sessions: panelSessions, isLoading: panelSessionsLoading } = useListSessions({
     limit: 100,
@@ -806,6 +908,42 @@ export default function DashboardPage() {
     return map;
   }, [topics]);
 
+  const handleSelectTopic = (topic: SelectedTopic, sectionNum: string) => {
+    if (selectedTopic?.code === topic.code) {
+      setSelectedTopic(null);
+      setIsAutoTopic(false);
+      return;
+    }
+    setSelectedTopic(topic);
+    setIsAutoTopic(false);
+    setActiveTab("theory");
+    setPracticeKey((k) => k + 1);
+    setRightPanelView(null);
+    setExpanded((prev) => ({ ...prev, [sectionNum]: true }));
+    setExpandedGroups((prev) => ({ ...prev, [`${sectionNum}-${topic.groupTitle}`]: true }));
+  };
+
+  useEffect(() => {
+    if (!hasAutoStarted && topics.length > 0 && !selectedTopic && rightPanelView === null) {
+      const random = topics[Math.floor(Math.random() * topics.length)];
+      const sectionNum = random.code.split(".")[0];
+      handleSelectTopic(
+        {
+          title: random.title,
+          code: random.code,
+          moduleId: random.moduleIds[0],
+          moduleIds: random.moduleIds,
+          paper: random.paper as "01" | "02",
+          groupTitle: random.topicGroupTitle,
+        },
+        sectionNum,
+      );
+      setHasAutoStarted(true);
+      setIsAutoTopic(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topics, hasAutoStarted]);
+
   if (user?.role === "parent") {
     return <ParentDashboard />;
   }
@@ -822,15 +960,6 @@ export default function DashboardPage() {
     }, {});
     return { num, label: SECTION_LABELS[num] ?? `Topic ${num}`, groups: Object.entries(groups), isProgramming: num === "6" };
   });
-
-  const handleSelectTopic = (topic: SelectedTopic, sectionNum: string) => {
-    setSelectedTopic(topic);
-    setActiveTab("theory");
-    setPracticeKey((k) => k + 1);
-    setRightPanelView(null);
-    setExpanded((prev) => ({ ...prev, [sectionNum]: true }));
-    setExpandedGroups((prev) => ({ ...prev, [`${sectionNum}-${topic.groupTitle}`]: true }));
-  };
 
   const toggleGroup = (key: string) =>
     setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1031,6 +1160,31 @@ export default function DashboardPage() {
                 </div>
                 <p className="font-medium" style={{ color: "var(--foreground)" }}>Select a topic</p>
                 <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>Pick any topic from the left panel to start practising</p>
+                <button
+                  onClick={() => {
+                    if (topics.length === 0) return;
+                    const random = topics[Math.floor(Math.random() * topics.length)];
+                    const sectionNum = random.code.split(".")[0];
+                    handleSelectTopic(
+                      {
+                        title: random.title,
+                        code: random.code,
+                        moduleId: random.moduleIds[0],
+                        moduleIds: random.moduleIds,
+                        paper: random.paper as "01" | "02",
+                        groupTitle: random.topicGroupTitle,
+                      },
+                      sectionNum,
+                    );
+                    setIsAutoTopic(true);
+                  }}
+                  className="mt-2 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  style={{ backgroundColor: "#eef2ff", color: "#4f46e5", border: "1px solid #c7d2fe" }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#e0e7ff"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "#eef2ff"; }}
+                >
+                  Get a random question
+                </button>
               </div>
             </div>
           </div>
@@ -1041,6 +1195,11 @@ export default function DashboardPage() {
               <div className="px-5 pt-4 pb-3 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-2 flex-wrap mb-1.5">
                   <h2 className="font-semibold text-base" style={{ color: "var(--foreground)" }}>{selectedTopic.title}</h2>
+                  {isAutoTopic && (
+                    <span className="text-xs font-medium px-1.5 py-0.5 rounded-md shrink-0" style={{ backgroundColor: "#fdf4ff", color: "#a855f7", border: "1px solid #e9d5ff" }}>
+                      Random
+                    </span>
+                  )}
                   <span className="text-xs font-medium px-1.5 py-0.5 rounded-md shrink-0" style={{ backgroundColor: "var(--accent)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}>
                     Paper {selectedTopic.paper}
                   </span>

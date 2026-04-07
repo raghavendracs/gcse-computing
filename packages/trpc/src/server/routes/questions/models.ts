@@ -21,9 +21,11 @@ export const generatedQuestionOutputModel = z.object({
   questionText: z.string(),
   answerFormat: z.enum(["free_text", "code", "multiple_choice"]),
   maxMarks: z.number(),
+  markSchemePoints: z.array(z.string()),
   modelAnswer: z.string(),
   hints: z.array(z.string()),
   testCases: z.array(testCaseModel),
+  supportReady: z.boolean(),
   metadata: z.object({
     examBoard: z.string(),
     topicName: z.string(),
@@ -100,4 +102,16 @@ export const requestCodingHintOutputModel = z.object({
   hintText: z.string(),
   hintLevel: z.number(),
   isLastHint: z.boolean(),
+});
+
+export const generateQuestionSupportInputModel = z.object({
+  questionId: z.string(),
+});
+
+export const generateQuestionSupportOutputModel = z.object({
+  hints: z.array(z.string()),
+  modelAnswer: z.string(),
+  markSchemePoints: z.array(z.string()),
+  testCases: z.array(testCaseModel),
+  misconceptionNotes: z.array(z.string()),
 });

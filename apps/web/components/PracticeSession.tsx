@@ -1,8 +1,8 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
-import { Lightbulb, Play } from "lucide-react";
-import { useGenerateQuestion, useSubmitAnswer, useRequestHint, useRunCode, useRequestCodingHint } from "~/hooks/api/questions";
+import { Lightbulb, Play, Loader2 } from "lucide-react";
+import { useGenerateQuestion, useGenerateQuestionSupport, useSubmitAnswer, useRequestHint, useRunCode, useRequestCodingHint } from "~/hooks/api/questions";
 import { useStartSession, useEndSession } from "~/hooks/api/sessions";
 import { QuestionText } from "~/components/QuestionText";
 import { usePracticeTimer } from "~/contexts/PracticeTimerContext";
@@ -56,6 +56,7 @@ type Question = {
   id: string;
   questionText: string;
   maxMarks: number;
+  supportReady?: boolean;
   modelAnswer: string;
   hints: string[];
   testCases?: TestCase[];
@@ -84,8 +85,8 @@ interface Props {
   onEnd?: () => void;
 }
 
-export function PracticeSession({ moduleId, mode, topicTitle, topicDescription, onEnd }: Props) {
-  const { timeSpent, startTimer, stopTimer, registerEndSession, unregisterEndSession } = usePracticeTimer();
+export function PracticeSession({ moduleId, mode, onEnd }: Props) {
+  const { startTimer, stopTimer, registerEndSession, unregisterEndSession } = usePracticeTimer();
   const questionStartedAt = useRef<number>(0);
 
   const [started, setStarted] = useState(false);
@@ -112,6 +113,14 @@ export function PracticeSession({ moduleId, mode, topicTitle, topicDescription, 
   const requestHint = useRequestHint();
   const runCode = useRunCode();
   const requestCodingHint = useRequestCodingHint();
+  const generateQuestionSupport = useGenerateQuestionSupport();
+  const [supportReady, setSupportReady] = useState(false);
+  const [supportData, setSupportData] = useState<{
+    hints: string[];
+    modelAnswer: string;
+    markSchemePoints: string[];
+    testCases: TestCase[];
+  } | null>(null);
   const startSession = useStartSession();
   const endSession = useEndSession();
   const sessionIdRef = useRef<string | null>(null);
@@ -143,6 +152,12 @@ export function PracticeSession({ moduleId, mode, topicTitle, topicDescription, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, assessment]);
 
+  useEffect(() => {
+    if (supportData && supportData.testCases.length > 0) {
+      setIsCodingQuestion(true);
+    }
+  }, [supportData]);
+
   const loadQuestion = useCallback(async () => {
     setAnswer("");
     setCode("# Write your Python solution here\n");
@@ -156,19 +171,50 @@ export function PracticeSession({ moduleId, mode, topicTitle, topicDescription, 
     setModelAnswer("");
     setMarkSchemePoints([]);
     setError("");
+    setSupportReady(false);
+    setSupportData(null);
 
     try {
-      // Start a backend session on first question load (await so sessionId is ready before submit)
       if (!sessionIdRef.current) {
         try {
           const { sessionId } = await startSession.mutateAsync({ moduleId, mode });
           sessionIdRef.current = sessionId;
         } catch {/* non-critical */}
       }
+
       const q = await generateQuestion.mutateAsync({ moduleId, difficulty, mode });
       const qTyped = q as unknown as Question;
       setQuestion(qTyped);
-      setIsCodingQuestion(Array.isArray(qTyped.testCases) && qTyped.testCases.length > 0);
+
+      // If cached question already has support data, mark ready immediately
+      if (q.supportReady) {
+        setSupportReady(true);
+        setSupportData({
+          hints: qTyped.hints,
+          modelAnswer: qTyped.modelAnswer,
+          markSchemePoints: q.markSchemePoints ?? [],
+          testCases: (qTyped.testCases ?? []) as TestCase[],
+        });
+      } else {
+        // Fire support call in background — don't await
+        generateQuestionSupport.mutateAsync({ questionId: q.id }).then((support) => {
+          setSupportData({
+            hints: support.hints,
+            modelAnswer: support.modelAnswer,
+            markSchemePoints: support.markSchemePoints,
+            testCases: support.testCases as TestCase[],
+          });
+          setSupportReady(true);
+        }).catch(() => {
+          // Support failed — still allow practice with limited functionality
+          setSupportReady(true);
+        });
+      }
+
+      setIsCodingQuestion(
+        mode === "coding" ||
+        (Array.isArray(qTyped.testCases) && qTyped.testCases.length > 0)
+      );
       questionStartedAt.current = Date.now();
       startTimer();
     } catch {
@@ -206,11 +252,17 @@ export function PracticeSession({ moduleId, mode, topicTitle, topicDescription, 
         });
         setHintsRevealed((prev) => [...prev, hintText]);
       } else {
-        const { hintText } = await requestHint.mutateAsync({
-          questionId: question.id,
-          currentHintLevel: hintsRevealed.length,
-        });
-        setHintsRevealed((prev) => [...prev, hintText]);
+        // Theory: use pre-fetched hints from supportData first
+        const hints = supportData?.hints ?? [];
+        if (hintsRevealed.length < hints.length) {
+          setHintsRevealed((prev) => [...prev, hints[hintsRevealed.length]]);
+        } else {
+          const { hintText } = await requestHint.mutateAsync({
+            questionId: question.id,
+            currentHintLevel: hintsRevealed.length,
+          });
+          setHintsRevealed((prev) => [...prev, hintText]);
+        }
       }
       setShowHints(true);
     } catch {
@@ -252,8 +304,8 @@ export function PracticeSession({ moduleId, mode, topicTitle, topicDescription, 
         timeSpentSeconds: Math.round((Date.now() - questionStartedAt.current) / 1000),
       });
       setAssessment(result.assessment);
-      setModelAnswer(result.modelAnswer);
-      if ("markSchemePoints" in result) setMarkSchemePoints(result.markSchemePoints as string[]);
+      setModelAnswer(supportData?.modelAnswer || result.modelAnswer);
+      setMarkSchemePoints(supportData?.markSchemePoints ?? result.markSchemePoints ?? []);
     } catch {
       setError("Submission failed. Please try again.");
       startTimer();
@@ -444,17 +496,23 @@ export function PracticeSession({ moduleId, mode, topicTitle, topicDescription, 
                 {error && <p className="text-rose-500 text-sm mb-3">{error}</p>}
 
                 <div className="flex items-center gap-3">
-                  <button onClick={handleRun} disabled={runCode.isPending || !code.trim()}
+                  <button onClick={handleRun} disabled={runCode.isPending || !code.trim() || !supportReady}
                     className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)" }}
                   >
                     {runCode.isPending ? "Running..." : "Run ▶"}
                   </button>
-                  <button onClick={handleHint} disabled={hintPending || hintsRevealed.length >= MAX_HINTS}
+                  <button onClick={handleHint} disabled={hintPending || hintsRevealed.length >= MAX_HINTS || (!isCodingQuestion && !supportReady)}
                     className="px-4 py-2 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {hintPending ? "Loading..." : hintsRevealed.length === 0 ? "Get hint" : hintsRevealed.length < MAX_HINTS ? `Hint ${hintsRevealed.length + 1}/${MAX_HINTS}` : "No more hints"}
                   </button>
+                  {!supportReady && !assessment && question && (
+                    <span className="text-xs flex items-center gap-1" style={{ color: "var(--muted-foreground)" }}>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Preparing...
+                    </span>
+                  )}
                   <button onClick={handleSubmit} disabled={submitAnswer.isPending || !code.trim()}
                     className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -476,11 +534,17 @@ export function PracticeSession({ moduleId, mode, topicTitle, topicDescription, 
                 {error && <p className="text-rose-500 text-sm mb-3">{error}</p>}
 
                 <div className="flex items-center gap-3">
-                  <button onClick={handleHint} disabled={hintPending || hintsRevealed.length >= MAX_HINTS}
+                  <button onClick={handleHint} disabled={hintPending || hintsRevealed.length >= MAX_HINTS || (!isCodingQuestion && !supportReady)}
                     className="px-4 py-2 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {hintPending ? "Loading..." : hintsRevealed.length === 0 ? "Get hint" : hintsRevealed.length < MAX_HINTS ? `Hint ${hintsRevealed.length + 1}/${MAX_HINTS}` : "No more hints"}
                   </button>
+                  {!supportReady && !assessment && question && (
+                    <span className="text-xs flex items-center gap-1" style={{ color: "var(--muted-foreground)" }}>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Preparing...
+                    </span>
+                  )}
                   <button onClick={handleSubmit} disabled={submitAnswer.isPending || !answer.trim()}
                     className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
