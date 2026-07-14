@@ -13,6 +13,7 @@ import { useStartSession, useEndSession } from "~/hooks/api/sessions";
 import { QuestionText } from "~/components/QuestionText";
 import { usePracticeTimer } from "~/contexts/PracticeTimerContext";
 import { initPyodideWorker, runInBrowser, provideInput, isPyodideReady } from "~/lib/pyodide";
+import { BrowserTerminal, type TerminalHandle } from "~/components/BrowserTerminal";
 
 const CodeEditor = dynamic(() => import("~/app/(dashboard)/modules/[id]/coding/CodeEditor"), { ssr: false });
 
@@ -323,12 +324,10 @@ export function PracticeSession({ topicId }: Props) {
   const [code, setCode] = useState(DEFAULT_CODE);
   const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null);
 
-  // In-browser Python runtime (Pyodide in a worker) — "Run" executes here
-  const [browserOut, setBrowserOut] = useState("");
+  // In-browser Python runtime (Pyodide in a worker) — "Run" executes here,
+  // output/input flow through a real terminal (xterm.js).
   const [pyPhase, setPyPhase] = useState<"idle" | "loading" | "running">("idle");
-  const [pyErr, setPyErr] = useState("");
-  const [awaitingInput, setAwaitingInput] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState("");
+  const termRef = useRef<TerminalHandle>(null);
   const awaitingRef = useRef(false);
 
   const [hints, setHints] = useState<string[]>([]);
@@ -363,11 +362,9 @@ export function PracticeSession({ topicId }: Props) {
     if (!question) return;
     setCode(question.starterCode ?? DEFAULT_CODE);
     setSubmitResult(null);
-    setBrowserOut("");
-    setPyErr("");
-    setAwaitingInput(null);
-    setInputValue("");
+    if (awaitingRef.current) provideInput(null);
     awaitingRef.current = false;
+    termRef.current?.clear();
     setHints([]);
     setShowHints(true);
     setShowModelAnswer(false);
@@ -445,11 +442,9 @@ export function PracticeSession({ topicId }: Props) {
     setView("practice");
     setCode(DEFAULT_CODE);
     setSubmitResult(null);
-    setBrowserOut("");
-    setPyErr("");
-    setAwaitingInput(null);
-    setInputValue("");
+    if (awaitingRef.current) provideInput(null);
     awaitingRef.current = false;
+    termRef.current?.clear();
     setHints([]);
     setShowHints(true);
     setShowModelAnswer(false);
@@ -474,44 +469,41 @@ export function PracticeSession({ topicId }: Props) {
     await ensureSession();
   };
 
-  // Run = execute the code in the browser (Pyodide), interactive input() inline.
+  // Run = execute the code in the browser (Pyodide); output + input flow through
+  // the xterm terminal. input() blocks the worker until the user types a line.
   const handleRun = async () => {
     if (!code.trim() || pyPhase !== "idle") return;
-    setBrowserOut("");
-    setPyErr("");
-    setAwaitingInput(null);
-    setInputValue("");
     awaitingRef.current = false;
+    termRef.current?.clear();
     try {
       if (!isPyodideReady()) {
         setPyPhase("loading");
+        termRef.current?.writeln("\x1b[2mLoading Python (first run downloads ~10 MB)…\x1b[0m");
         await initPyodideWorker();
       }
       setPyPhase("running");
       await runInBrowser(code, {
-        onOutput: (chunk) => setBrowserOut((prev) => prev + chunk),
+        onOutput: (chunk) => termRef.current?.write(chunk),
         onInputRequest: (prompt) => {
-          setBrowserOut((prev) => prev + prompt);
+          termRef.current?.write(prompt);
           awaitingRef.current = true;
-          setAwaitingInput(prompt);
+          termRef.current?.readLine();
         },
       });
+      termRef.current?.writeln("\x1b[2m— finished —\x1b[0m");
     } catch (e) {
-      setPyErr(e instanceof Error ? e.message : String(e));
+      const msg = (e instanceof Error ? e.message : String(e)).replace(/\n/g, "\r\n");
+      termRef.current?.write(`\r\n\x1b[31m${msg}\x1b[0m\r\n`);
     } finally {
       awaitingRef.current = false;
-      setAwaitingInput(null);
       setPyPhase("idle");
     }
   };
 
-  const submitBrowserInput = () => {
-    const v = inputValue;
-    setBrowserOut((prev) => prev + v + "\n");
-    setAwaitingInput(null);
-    setInputValue("");
+  // A line the user typed into the terminal in response to input().
+  const handleTerminalLine = (line: string) => {
     awaitingRef.current = false;
-    provideInput(v);
+    provideInput(line);
   };
 
   const handleSubmit = async () => {
@@ -724,36 +716,22 @@ export function PracticeSession({ topicId }: Props) {
               <CodeEditor value={code} onChange={(val) => { setCode(val); }} />
             </div>
 
-            {/* Console — Python runs in your browser (Pyodide); input() prompts inline */}
-            {(pyPhase !== "idle" || browserOut || pyErr || awaitingInput !== null) && (
-              <div className="mb-4 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-                <div className="flex items-center gap-2 px-3 py-1.5" style={{ backgroundColor: "var(--accent)" }}>
-                  <Terminal className="w-3.5 h-3.5" style={{ color: "var(--muted-foreground)" }} />
-                  <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Console</span>
-                  {pyPhase === "loading" && <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>loading Python (~10&nbsp;MB, once)…</span>}
-                  {pyPhase === "running" && awaitingInput === null && <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>running…</span>}
-                  {awaitingInput !== null && <span className="text-[10px]" style={{ color: "#059669" }}>waiting for input</span>}
-                </div>
-                <div className="text-xs font-mono px-3 py-2.5 overflow-x-auto max-h-72 overflow-y-auto" style={{ backgroundColor: "#0f172a", color: "#e2e8f0" }}>
-                  <pre className="whitespace-pre-wrap" style={{ margin: 0 }}>{browserOut}</pre>
-                  {awaitingInput !== null && (
-                    <div className="flex items-center gap-1.5">
-                      <span style={{ color: "#34d399" }}>❯</span>
-                      <input
-                        autoFocus
-                        value={inputValue}
-                        onChange={(e) => setInputValue(e.target.value)}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitBrowserInput(); } }}
-                        placeholder="type a value and press Enter"
-                        className="flex-1 bg-transparent outline-none text-xs font-mono placeholder:text-slate-500"
-                        style={{ color: "#e2e8f0" }}
-                      />
-                    </div>
+            {/* Console — real terminal (xterm). Python runs in your browser; type at input() prompts. */}
+            <div className="mb-4 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2 px-3 py-1.5" style={{ backgroundColor: "var(--accent)" }}>
+                <Terminal className="w-3.5 h-3.5" style={{ color: "var(--muted-foreground)" }} />
+                <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Console</span>
+                <span className="ml-auto flex items-center gap-1.5">
+                  {pyPhase === "loading" && <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>loading Python…</span>}
+                  {pyPhase === "running" && (
+                    <span className="text-[10px] flex items-center gap-1" style={{ color: "#059669" }}>
+                      <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: "#059669" }} /> running
+                    </span>
                   )}
-                  {pyErr && <pre className="whitespace-pre-wrap mt-1" style={{ margin: 0, color: "#fca5a5" }}>{pyErr}</pre>}
-                </div>
+                </span>
               </div>
-            )}
+              <BrowserTerminal ref={termRef} onLine={handleTerminalLine} />
+            </div>
 
             {error && <p className="text-rose-500 text-sm mb-3">{error}</p>}
 
