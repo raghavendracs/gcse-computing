@@ -18,10 +18,23 @@ Rules:
 - modelAnswer: complete, correct Python 3 that passes every test case.
 - easy = sequence/simple selection; medium = iteration/lists/functions; hard = nested loops/2D lists/multiple functions.`;
 
+export interface SeedUsage {
+  inputTokens: number;
+  outputTokens: number;
+  calls: number;
+}
+
 class QuestionGenerationService {
   private client: Anthropic;
+  private usage: SeedUsage = { inputTokens: 0, outputTokens: 0, calls: 0 };
+
   constructor() {
     this.client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+
+  /** Cumulative Anthropic token usage across all generateSeedQuestion calls (incl. discarded ones). */
+  getUsage(): SeedUsage {
+    return { ...this.usage };
   }
 
   async generateSeedQuestion(input: GenerateSeedQuestionInput): Promise<GeneratedSeedQuestion> {
@@ -37,6 +50,10 @@ Return ONLY the JSON object.`;
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: userPrompt }],
     });
+
+    this.usage.inputTokens += message.usage.input_tokens;
+    this.usage.outputTokens += message.usage.output_tokens;
+    this.usage.calls += 1;
 
     const content = message.content[0];
     if (content.type !== "text") throw new Error("Unexpected AI response type");

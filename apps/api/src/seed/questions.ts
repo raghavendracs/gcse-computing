@@ -31,9 +31,16 @@ async function main() {
   await connectToDatabase(mongoUri);
 
   const onlySlug = process.env.SEED_ONLY_SLUG;
+  const onlyArea = process.env.SEED_ONLY_AREA;
   const limit = process.env.SEED_LIMIT ? Number(process.env.SEED_LIMIT) : Infinity;
-  const topics = await ProgrammingTopic.find(onlySlug ? { slug: onlySlug } : { deletedAt: null });
+  const topicFilter = onlySlug
+    ? { slug: onlySlug }
+    : onlyArea
+      ? { area: onlyArea, deletedAt: null }
+      : { deletedAt: null };
+  const topics = await ProgrammingTopic.find(topicFilter).sort({ areaSortOrder: 1, sortOrder: 1 });
   let inserted = 0;
+  let discarded = 0;
 
   for (const topic of topics) {
     const target = scaledSplit(PER_TOPIC);
@@ -52,6 +59,7 @@ async function main() {
           });
           const ok = await verify(q.modelAnswer, q.testCases);
           if (!ok) {
+            discarded++;
             console.warn(`  ✗ discarded (model answer failed tests) ${topic.slug}/${difficulty}`);
             continue;
           }
@@ -76,7 +84,24 @@ async function main() {
     }
   }
 
-  console.log(`Done. Inserted ${inserted} questions.`);
+  // Token cost report — SEED model is Claude Sonnet 4.6: $3.00 / 1M input, $15.00 / 1M output.
+  const u = genSvc.getUsage();
+  const INPUT_PER_M = 3.0;
+  const OUTPUT_PER_M = 15.0;
+  const inputCost = (u.inputTokens / 1_000_000) * INPUT_PER_M;
+  const outputCost = (u.outputTokens / 1_000_000) * OUTPUT_PER_M;
+  const totalCost = inputCost + outputCost;
+
+  console.log(`\nDone. Inserted ${inserted} questions (${discarded} discarded by the verify gate).`);
+  console.log("─── Token usage (Claude Sonnet 4.6) ───");
+  console.log(`  generation calls : ${u.calls}`);
+  console.log(`  input tokens     : ${u.inputTokens.toLocaleString()}  ($${inputCost.toFixed(4)} @ $${INPUT_PER_M}/1M)`);
+  console.log(`  output tokens    : ${u.outputTokens.toLocaleString()}  ($${outputCost.toFixed(4)} @ $${OUTPUT_PER_M}/1M)`);
+  console.log(`  TOTAL COST       : $${totalCost.toFixed(4)}`);
+  if (inserted > 0) {
+    console.log(`  cost / inserted  : $${(totalCost / inserted).toFixed(4)} per question`);
+  }
+
   await disconnectFromDatabase();
 }
 
