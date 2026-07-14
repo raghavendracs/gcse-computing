@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { authenticatedProcedure, publicProcedure, router } from "../../trpc";
 import {
   signupInputModel,
@@ -53,7 +54,14 @@ export const authRouter = router({
   me: authenticatedProcedure
     .output(publicUserModel)
     .query(async ({ ctx }) => {
-      return authService.getUserById(ctx.user!.userId);
+      try {
+        return await authService.getUserById(ctx.user!.userId);
+      } catch {
+        // Valid JWT but the user no longer exists (e.g. account deleted or DB
+        // reset). Clear the stale cookie and report a clean 401 instead of 500.
+        ctx.res.clearCookie("gcse_token");
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Session no longer valid" });
+      }
     }),
 
   updateProfile: authenticatedProcedure
