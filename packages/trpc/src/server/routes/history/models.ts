@@ -1,9 +1,7 @@
 import { z } from "zod";
 
 export const listAttemptsInputModel = z.object({
-  moduleId: z.string().optional(),
-  moduleIds: z.array(z.string()).optional(),
-  studentId: z.string().optional(), // parent can pass a student's id to view their history
+  topicIds: z.array(z.string()).optional(),
   limit: z.number().int().min(1).max(200).default(20),
   continuationToken: z.string().optional(),
 });
@@ -11,14 +9,15 @@ export const listAttemptsInputModel = z.object({
 const attemptSummaryModel = z.object({
   id: z.string(),
   questionId: z.string(),
-  moduleId: z.string(),
+  topicId: z.string(),
   attemptNumber: z.number(),
-  submissionType: z.enum(["text", "code"]),
-  awardedMarks: z.number(),
-  maxMarks: z.number(),
+  testsPassed: z.number(),
+  testsFailed: z.number(),
+  totalTests: z.number(),
+  pointsAwardedThisAttempt: z.number(),
   feedback: z.string(),
-  missingPoints: z.array(z.string()),
   strengths: z.array(z.string()),
+  missingPoints: z.array(z.string()),
   hintsUsedCount: z.number(),
   timeSpentSeconds: z.number(),
   createdAt: z.string(),
@@ -32,28 +31,38 @@ export const listAttemptsOutputModel = z.object({
 
 export const getAttemptDetailInputModel = z.object({
   attemptId: z.string(),
-  studentId: z.string().optional(), // parent can pass student's id
+});
+
+const testResultModel = z.object({
+  input: z.string(),
+  expectedOutput: z.string(),
+  actualOutput: z.string(),
+  passed: z.boolean(),
+  hidden: z.boolean(),
 });
 
 export const getAttemptDetailOutputModel = z.object({
   id: z.string(),
   questionId: z.string(),
-  moduleId: z.string(),
+  topicId: z.string(),
   attemptNumber: z.number(),
-  submittedAnswer: z.string(),
-  submissionType: z.enum(["text", "code"]),
-  assessment: z.object({
-    awardedMarks: z.number(),
-    maxMarks: z.number(),
-    feedback: z.string(),
-    missingPoints: z.array(z.string()),
+  submittedCode: z.string(),
+  testResults: z.array(testResultModel),
+  testsPassed: z.number(),
+  testsFailed: z.number(),
+  totalTests: z.number(),
+  feedback: z.object({
+    text: z.string(),
     strengths: z.array(z.string()),
-    confidence: z.number(),
+    missingPoints: z.array(z.string()),
+    syntaxValid: z.boolean(),
+    errorCategory: z.enum(["syntax", "logic", "runtime"]).nullable(),
   }),
-  // Enriched from generated_questions
+  pointsAwardedThisAttempt: z.number(),
+  // Enriched from questions collection
   questionText: z.string().optional(),
   modelAnswer: z.string().optional(),
-  markSchemePoints: z.array(z.string()).optional(),
+  difficulty: z.enum(["easy", "medium", "hard"]).optional(),
   hints: z.array(z.string()).optional(),
   hintsUsedCount: z.number(),
   timeSpentSeconds: z.number(),

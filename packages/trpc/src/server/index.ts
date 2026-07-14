@@ -1,23 +1,21 @@
 import { router } from "./trpc";
 import { authRouter } from "./routes/auth/route";
-import { modulesRouter } from "./routes/modules/route";
+import { topicsRouter } from "./routes/topics/route";
 import { questionsRouter } from "./routes/questions/route";
+import { leaderboardRouter } from "./routes/leaderboard/route";
 import { sessionsRouter } from "./routes/sessions/route";
 import { historyRouter } from "./routes/history/route";
-import { progressRouter } from "./routes/progress/route";
-import { curriculumRouter } from "./routes/curriculum/route";
 
 export const appRouter = router({
   auth: authRouter,
-  modules: modulesRouter,
+  topics: topicsRouter,
   questions: questionsRouter,
+  leaderboard: leaderboardRouter,
   sessions: sessionsRouter,
   history: historyRouter,
-  progress: progressRouter,
-  curriculum: curriculumRouter,
 });
 
 export type AppRouter = typeof appRouter;
-export { router, publicProcedure, authenticatedProcedure, parentOnlyProcedure, studentProcedure } from "./trpc";
+export { router, publicProcedure, authenticatedProcedure } from "./trpc";
 export { createContext } from "./context";
 export type { Context, JWTPayload, TRPCContext } from "./context";
