@@ -7,13 +7,13 @@ import {
   useGetQuestionById,
   useListForTopic,
   useRunCode,
-  useRunWithInput,
   useSubmit,
   useRequestCodingHint,
 } from "~/hooks/api/questions";
 import { useStartSession, useEndSession } from "~/hooks/api/sessions";
 import { QuestionText } from "~/components/QuestionText";
 import { usePracticeTimer } from "~/contexts/PracticeTimerContext";
+import { runPythonInBrowser, loadPyodideOnce, isPyodideLoaded } from "~/lib/pyodide";
 
 const CodeEditor = dynamic(() => import("~/app/(dashboard)/modules/[id]/coding/CodeEditor"), { ssr: false });
 
@@ -326,10 +326,11 @@ export function PracticeSession({ topicId }: Props) {
   const [runError, setRunError] = useState("");
   const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null);
 
-  // Interactive "enter your own input" playground
-  const [showTryInput, setShowTryInput] = useState(false);
-  const [customInput, setCustomInput] = useState("");
-  const [customRun, setCustomRun] = useState<{ stdout: string; stderr: string; note: string } | null>(null);
+  // In-browser Python playground (Pyodide — runs on the user's device)
+  const [showBrowserRun, setShowBrowserRun] = useState(false);
+  const [browserOut, setBrowserOut] = useState("");
+  const [pyPhase, setPyPhase] = useState<"idle" | "loading" | "running">("idle");
+  const [pyErr, setPyErr] = useState("");
 
   const [hints, setHints] = useState<string[]>([]);
   const [showHints, setShowHints] = useState(true);
@@ -354,7 +355,6 @@ export function PracticeSession({ topicId }: Props) {
   const refetch = selectedQuestionId ? byId.refetch : random.refetch;
 
   const runCode = useRunCode();
-  const runWithInput = useRunWithInput();
   const submit = useSubmit();
   const requestCodingHint = useRequestCodingHint();
   const startSession = useStartSession();
@@ -367,7 +367,8 @@ export function PracticeSession({ topicId }: Props) {
     setRunResults(null);
     setRunError("");
     setSubmitResult(null);
-    setCustomRun(null);
+    setBrowserOut("");
+    setPyErr("");
     setHints([]);
     setShowHints(true);
     setShowModelAnswer(false);
@@ -491,19 +492,21 @@ export function PracticeSession({ topicId }: Props) {
     }
   };
 
-  const handleRunWithInput = async () => {
-    if (!code.trim()) return;
-    setCustomRun(null);
+  const handleRunInBrowser = async () => {
+    if (!code.trim() || pyPhase !== "idle") return;
+    setBrowserOut("");
+    setPyErr("");
     try {
-      const r = await runWithInput.mutateAsync({ code, stdin: customInput });
-      const note = r.blocked
-        ? `Restricted: ${r.blockReason} is not allowed.`
-        : r.timedOut
-        ? "Timed out — check for an infinite loop, or that you provided enough input lines."
-        : "";
-      setCustomRun({ stdout: r.stdout, stderr: r.stderr, note });
-    } catch {
-      setCustomRun({ stdout: "", stderr: "", note: "Run failed. Please try again." });
+      if (!isPyodideLoaded()) {
+        setPyPhase("loading");
+        await loadPyodideOnce();
+      }
+      setPyPhase("running");
+      await runPythonInBrowser(code, (chunk) => setBrowserOut((prev) => prev + chunk));
+    } catch (e) {
+      setPyErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPyPhase("idle");
     }
   };
 
@@ -718,59 +721,59 @@ export function PracticeSession({ topicId }: Props) {
               <CodeEditor value={code} onChange={(val) => { setCode(val); }} />
             </div>
 
-            {/* Try with your own input — interactive run against user-typed stdin */}
+            {/* Run in browser — Python via WebAssembly (Pyodide); interactive input() */}
             <div className="mb-4 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card)" }}>
               <button
-                onClick={() => setShowTryInput((v) => !v)}
+                onClick={() => setShowBrowserRun((v) => !v)}
                 className="w-full flex items-center gap-2 px-3 py-2 text-left"
               >
                 <Terminal className="w-3.5 h-3.5" style={{ color: "var(--muted-foreground)" }} />
                 <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>
-                  Try with your own input
+                  Run in browser
                 </span>
-                {showTryInput
+                {showBrowserRun
                   ? <ChevronDown className="w-4 h-4 ml-auto" style={{ color: "var(--muted-foreground)" }} />
                   : <ChevronRight className="w-4 h-4 ml-auto" style={{ color: "var(--muted-foreground)" }} />}
               </button>
 
-              {showTryInput && (
+              {showBrowserRun && (
                 <div className="px-3 pb-3 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
                   <p className="text-xs pt-2" style={{ color: "var(--muted-foreground)" }}>
-                    Enter the values your program reads with <code className="font-mono">input()</code> — one per line — then run it.
+                    Runs your code with Python compiled to WebAssembly — on your device, not the server. When your program calls <code className="font-mono">input()</code>, a box pops up for you to type a value.
                   </p>
-                  <textarea
-                    value={customInput}
-                    onChange={(e) => setCustomInput(e.target.value)}
-                    rows={3}
-                    spellCheck={false}
-                    placeholder={"e.g.\n10\n5"}
-                    className="w-full text-sm font-mono rounded-lg px-3 py-2 resize-y focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                    style={{ backgroundColor: "var(--muted)", border: "1px solid var(--border)", color: "var(--foreground)" }}
-                  />
                   <button
-                    onClick={handleRunWithInput}
-                    disabled={runWithInput.isPending || !code.trim()}
+                    onClick={handleRunInBrowser}
+                    disabled={pyPhase !== "idle" || !code.trim()}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ backgroundColor: "#059669", color: "#fff" }}
                   >
-                    {runWithInput.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                    Run with this input
+                    {pyPhase === "loading" ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading Python…</>
+                    ) : pyPhase === "running" ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running…</>
+                    ) : (
+                      <><Play className="w-3.5 h-3.5" /> Run in browser</>
+                    )}
                   </button>
+                  {pyPhase === "loading" && (
+                    <p className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
+                      First run downloads the Python runtime (~10&nbsp;MB) — this happens once, then it&apos;s cached.
+                    </p>
+                  )}
 
-                  {customRun && (
+                  {(browserOut || pyErr) && (
                     <div className="space-y-2 pt-1">
-                      {customRun.note && <p className="text-xs text-rose-600">{customRun.note}</p>}
                       <div>
                         <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--muted-foreground)" }}>Output</p>
                         <pre className="text-xs font-mono rounded-lg px-3 py-2 whitespace-pre-wrap overflow-x-auto" style={{ backgroundColor: "#0f172a", color: "#e2e8f0" }}>
-                          {customRun.stdout || "(no output)"}
+                          {browserOut || "(no output)"}
                         </pre>
                       </div>
-                      {customRun.stderr && (
+                      {pyErr && (
                         <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wide mb-1 text-rose-500">Errors</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide mb-1 text-rose-500">Error</p>
                           <pre className="text-xs font-mono rounded-lg px-3 py-2 whitespace-pre-wrap overflow-x-auto" style={{ backgroundColor: "#450a0a", color: "#fecaca" }}>
-                            {customRun.stderr}
+                            {pyErr}
                           </pre>
                         </div>
                       )}
