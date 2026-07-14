@@ -1,84 +1,60 @@
 import { z } from "zod";
 
-export const generateQuestionInputModel = z.object({
-  moduleId: z.string(),
-  difficulty: z.enum(["easy", "medium", "hard"]).optional().default("medium"),
-  examBoard: z.enum(["OCR", "AQA", "Edexcel"]).optional(),
-  mode: z.enum(["theory", "coding"]).optional(),
-});
+// ─── Shared primitives ────────────────────────────────────────────────────────
 
-const testCaseModel = z.object({
-  input: z.string(),
-  expectedOutput: z.string(),
-  hidden: z.boolean(),
-});
-
-export const generatedQuestionOutputModel = z.object({
-  id: z.string(),
-  moduleId: z.string(),
-  questionType: z.string(),
-  difficulty: z.enum(["easy", "medium", "hard"]),
-  questionText: z.string(),
-  answerFormat: z.enum(["free_text", "code", "multiple_choice"]),
-  maxMarks: z.number(),
-  markSchemePoints: z.array(z.string()),
-  modelAnswer: z.string(),
-  hints: z.array(z.string()),
-  testCases: z.array(testCaseModel),
-  supportReady: z.boolean(),
-  metadata: z.object({
-    examBoard: z.string(),
-    topicName: z.string(),
-    misconceptionNotes: z.array(z.string()),
-  }),
-});
-
-export const submitAnswerInputModel = z.object({
-  questionId: z.string(),
-  sessionId: z.string().optional(),
-  answer: z.string().min(1, "Answer cannot be empty"),
-  hintsUsed: z.number().int().min(0).default(0),
-  timeSpentSeconds: z.number().int().min(0).default(0),
-});
-
-const assessmentModel = z.object({
-  awardedMarks: z.number(),
-  maxMarks: z.number(),
-  feedback: z.string(),
-  missingPoints: z.array(z.string()),
-  strengths: z.array(z.string()),
-  confidence: z.number(),
-});
-
-export const submitAnswerOutputModel = z.object({
-  attemptId: z.string(),
-  assessment: assessmentModel,
-  modelAnswer: z.string(),
-  markSchemePoints: z.array(z.string()),
-});
-
-export const requestHintInputModel = z.object({
-  questionId: z.string(),
-  currentHintLevel: z.number().int().min(0).max(4),
-});
-
-export const requestHintOutputModel = z.object({
-  hintText: z.string(),
-  hintLevel: z.number(),
-  isLastHint: z.boolean(),
-});
-
-export const runCodeInputModel = z.object({
-  questionId: z.string(),
-  code: z.string(),
-});
-
-const testResultModel = z.object({
+/** Full test result shape returned by the sandbox (and stored in QuestionAttempt). */
+export const testResultModel = z.object({
   input: z.string(),
   expectedOutput: z.string(),
   actualOutput: z.string(),
   passed: z.boolean(),
   hidden: z.boolean(),
+});
+
+export type TestResult = z.infer<typeof testResultModel>;
+
+// ─── Public question shape (no expectedOutput, no modelAnswer) ────────────────
+
+export const publicQuestionModel = z.object({
+  id: z.string(),
+  topicId: z.string(),
+  difficulty: z.enum(["easy", "medium", "hard"]),
+  questionType: z.enum(["write", "fix", "extend"]),
+  questionText: z.string(),
+  starterCode: z.string().optional(),
+  /** Non-hidden cases expose input+description; hidden cases expose only the count (input/description = ""). */
+  testCasePreview: z.array(
+    z.object({
+      input: z.string(),
+      description: z.string(),
+      hidden: z.boolean(),
+    }),
+  ),
+  points: z.number(),
+});
+
+// ─── getForTopic ──────────────────────────────────────────────────────────────
+
+export const getForTopicInputModel = z.object({
+  topicId: z.string().describe("ID of the programming topic"),
+  difficulty: z.enum(["easy", "medium", "hard"]).optional().describe("Optional difficulty filter"),
+});
+
+export const getForTopicOutputModel = publicQuestionModel.nullable();
+
+// ─── getById ─────────────────────────────────────────────────────────────────
+
+export const getByIdInputModel = z.object({
+  questionId: z.string().describe("ID of the question"),
+});
+
+export const getByIdOutputModel = publicQuestionModel;
+
+// ─── runCode ─────────────────────────────────────────────────────────────────
+
+export const runCodeInputModel = z.object({
+  questionId: z.string().describe("ID of the question"),
+  code: z.string().describe("Python code to execute"),
 });
 
 export const runCodeOutputModel = z.object({
@@ -91,27 +67,47 @@ export const runCodeOutputModel = z.object({
   executionPath: z.enum(["sandbox", "ai"]),
 });
 
+// ─── submit ───────────────────────────────────────────────────────────────────
+
+export const submitInputModel = z.object({
+  questionId: z.string().describe("ID of the question"),
+  code: z.string().describe("Python code submitted by the student"),
+  hintsUsed: z.number().int().min(0).default(0).describe("Number of hints consumed"),
+  timeSpentSeconds: z.number().int().min(0).default(0).describe("Time spent in seconds"),
+  sessionId: z.string().optional().describe("Optional study session ID"),
+});
+
+export const submitOutputModel = z.object({
+  attemptId: z.string(),
+  testResults: z.array(testResultModel),
+  testsPassed: z.number(),
+  testsFailed: z.number(),
+  totalTests: z.number(),
+  feedback: z.object({
+    text: z.string(),
+    strengths: z.array(z.string()),
+    missingPoints: z.array(z.string()),
+    syntaxValid: z.boolean(),
+    errorCategory: z.enum(["syntax", "logic", "runtime"]).nullable(),
+  }),
+  pointsAwarded: z.number(),
+  newTotalPoints: z.number(),
+  solved: z.boolean(),
+  /** Model answer is revealed only after a submit. */
+  modelAnswer: z.string(),
+});
+
+// ─── requestCodingHint ────────────────────────────────────────────────────────
+
 export const requestCodingHintInputModel = z.object({
-  questionId: z.string(),
-  code: z.string(),
-  currentHintLevel: z.number().int().min(0).max(4),
-  testResults: z.array(testResultModel).optional(),
+  questionId: z.string().describe("ID of the question"),
+  code: z.string().describe("Student's current code"),
+  currentHintLevel: z.number().int().min(0).max(4).describe("Last hint level already shown (0 = none)"),
+  testResults: z.array(testResultModel).optional().describe("Optional last run test results for context"),
 });
 
 export const requestCodingHintOutputModel = z.object({
   hintText: z.string(),
   hintLevel: z.number(),
   isLastHint: z.boolean(),
-});
-
-export const generateQuestionSupportInputModel = z.object({
-  questionId: z.string(),
-});
-
-export const generateQuestionSupportOutputModel = z.object({
-  hints: z.array(z.string()),
-  modelAnswer: z.string(),
-  markSchemePoints: z.array(z.string()),
-  testCases: z.array(testCaseModel),
-  misconceptionNotes: z.array(z.string()),
 });
