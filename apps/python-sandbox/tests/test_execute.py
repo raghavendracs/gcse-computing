@@ -22,6 +22,26 @@ def test_correct_output():
     assert data["timedOut"] is False
     assert data["blocked"] is False
 
+def test_input_prompts_do_not_pollute_stdout():
+    """input('prompt') must read stdin but NOT echo the prompt into stdout."""
+    client = get_client()
+    resp = client.post("/execute", json={
+        "code": (
+            'score = int(input("Enter a starting score:"))\n'
+            'bonus = int(input("Enter a bonus score:"))\n'
+            'print((score + bonus) * 2)'
+        ),
+        "testCases": [
+            {"input": "10\n5", "expectedOutput": "30"},
+            {"input": "0\n0", "expectedOutput": "0"},
+        ],
+        "timeoutMs": 5000,
+    })
+    data = resp.json()
+    assert data["testResults"][0]["actualOutput"] == "30"
+    assert data["testResults"][0]["passed"] is True
+    assert data["testResults"][1]["passed"] is True
+
 def test_wrong_output():
     client = get_client()
     resp = client.post("/execute", json={
