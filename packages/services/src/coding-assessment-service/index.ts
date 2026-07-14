@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { getEvalModel } from "../ai/model-map";
 import { type AssessCodeInput, type AssessCodeOutput, assessCodeOutput } from "./models";
 
 class CodingAssessmentService {
@@ -9,7 +10,9 @@ class CodingAssessmentService {
   }
 
   async assessCode(input: AssessCodeInput): Promise<AssessCodeOutput> {
-    const { questionText, submittedCode, testResults, markSchemePoints, maxMarks, modelId } = input;
+    const { questionText, submittedCode, testResults, pointsAvailable } = input;
+
+    const maxMarks = pointsAvailable ?? testResults.length;
 
     const testSummary =
       testResults.length > 0
@@ -21,38 +24,37 @@ class CodingAssessmentService {
             .join("\n")
         : "No test results available.";
 
-    const systemPrompt = `You are a GCSE Computer Science examiner marking student Python code.
+    const systemPrompt = `You are a GCSE Computer Science examiner reviewing student Python code.
+The sandbox test results below are the authoritative ground truth for correctness — do NOT re-evaluate whether the code passes or fails.
+Your job is to produce qualitative feedback only: explain WHY tests passed or failed, highlight strengths, and identify what is missing.
 Output ONLY a JSON object with exactly these fields:
 {
   "awardedMarks": 4,
   "feedback": "2-3 sentences of constructive feedback",
-  "missingPoints": ["mark scheme point the student missed"],
+  "missingPoints": ["skill or concept the student missed"],
   "strengths": ["what the student got right"],
   "confidence": 0.9,
   "syntaxValid": true,
   "errorCategory": null
 }
 Rules:
-- awardedMarks: integer 0..${maxMarks}
+- awardedMarks: derive from the pass-rate of the test results (passes / total * ${maxMarks}), rounded to nearest integer, clamped 0..${maxMarks}
 - errorCategory: "syntax" | "logic" | "runtime" | null
 - syntaxValid: true if code has no syntax errors
 - confidence: 0.0..1.0`;
 
     const userPrompt = `Question: ${questionText}
 
-Mark scheme (${maxMarks} marks):
-${markSchemePoints.map((p, i) => `${i + 1}. ${p}`).join("\n")}
-
 Student code:
 \`\`\`python
 ${submittedCode}
 \`\`\`
 
-Test execution results:
+Test execution results (${testResults.filter((r) => r.passed).length}/${testResults.length} passed):
 ${testSummary}`;
 
     const message = await this.client.messages.create({
-      model: modelId,
+      model: getEvalModel(),
       max_tokens: 600,
       messages: [{ role: "user", content: userPrompt }],
       system: systemPrompt,

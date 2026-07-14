@@ -12,9 +12,7 @@ export const assessCodeInput = z.object({
   questionText: z.string(),
   submittedCode: z.string(),
   testResults: z.array(testResultSchema),
-  markSchemePoints: z.array(z.string()),
-  maxMarks: z.number().int().positive(),
-  modelId: z.string(),
+  pointsAvailable: z.number().optional(),
 });
 
 export type AssessCodeInput = z.infer<typeof assessCodeInput>;
