@@ -5,8 +5,6 @@ import { Settings, Sun, Moon, Monitor, LogOut, X, Check, Loader2 } from "lucide-
 import { useLogout, useMe, useUpdateProfile } from "~/hooks/api/auth";
 import { usePracticeTimer } from "~/contexts/PracticeTimerContext";
 
-type ExamBoard = "OCR" | "AQA" | "Edexcel";
-type AIModel = "accurate" | "balanced" | "budget";
 type Theme = "system" | "light" | "dark";
 
 function applyTheme(t: Theme) {
@@ -20,13 +18,11 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   const { user } = useMe();
   const updateProfile = useUpdateProfile();
   const [fullName, setFullName] = useState(user?.fullName ?? "");
-  const [examBoard, setExamBoard] = useState<ExamBoard>((user?.examBoardPreference as ExamBoard) ?? "Edexcel");
-  const [aiModel, setAiModel] = useState<AIModel>((user?.aiModelPreference as AIModel) ?? "balanced");
   const [saved, setSaved] = useState(false);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    await updateProfile.mutateAsync({ fullName, examBoardPreference: examBoard, aiModelPreference: aiModel });
+    await updateProfile.mutateAsync({ fullName });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -51,33 +47,6 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
             <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Email</label>
             <input type="email" value={user?.email ?? ""} disabled
               className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm text-[var(--muted-foreground)] bg-[var(--accent)] cursor-not-allowed" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Exam board</label>
-            <div className="flex gap-2">
-              {(["OCR", "AQA", "Edexcel"] as ExamBoard[]).map((b) => (
-                <button key={b} type="button" onClick={() => setExamBoard(b)}
-                  className={`flex-1 py-1.5 rounded-lg text-sm font-medium border transition-colors ${examBoard === b ? "bg-indigo-600 text-white border-indigo-600" : "bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)] hover:border-indigo-400"}`}>
-                  {b}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">AI model</label>
-            <div className="flex gap-2">
-              {([
-                { value: "accurate", label: "Accurate", sub: "Best quality" },
-                { value: "balanced", label: "Balanced", sub: "Recommended" },
-                { value: "budget", label: "Budget", sub: "Fastest" },
-              ] as { value: AIModel; label: string; sub: string }[]).map(({ value, label, sub }) => (
-                <button key={value} type="button" onClick={() => setAiModel(value)}
-                  className={`flex-1 py-2 px-1 rounded-lg text-xs font-medium border transition-colors text-center ${aiModel === value ? "bg-indigo-600 text-white border-indigo-600" : "bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)] hover:border-indigo-400"}`}>
-                  <p className="font-semibold">{label}</p>
-                  <p className={`text-xs mt-0.5 ${aiModel === value ? "text-indigo-200" : "text-[var(--muted-foreground)]"}`}>{sub}</p>
-                </button>
-              ))}
-            </div>
           </div>
           <button type="submit" disabled={updateProfile.isPending}
             className="w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
@@ -151,7 +120,7 @@ export function Nav() {
           <div className="flex items-center gap-3">
 
             {/* End session button — only when a session is active */}
-            {user?.role === "student" && activeEndSession && (
+            {activeEndSession && (
               <button
                 onClick={activeEndSession}
                 className="px-3 py-1 rounded-full text-xs font-medium transition-colors"
