@@ -735,21 +735,21 @@ export function PracticeSession({ topicId }: Props) {
 
             {error && <p className="text-rose-500 text-sm mb-3">{error}</p>}
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex justify-end gap-2 flex-wrap">
               <button
                 onClick={handleRun}
                 disabled={pyPhase !== "idle" || !code.trim()}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-32 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)" }}
               >
                 {pyPhase === "idle" ? <Play className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
-                {pyPhase === "loading" ? "Loading…" : pyPhase === "running" ? "Running…" : "Run ▶"}
+                {pyPhase === "loading" ? "Loading…" : pyPhase === "running" ? "Running…" : "Run"}
               </button>
 
               <button
                 onClick={handleHint}
                 disabled={requestCodingHint.isPending || hints.length >= MAX_HINTS}
-                className="px-4 py-2 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-32 py-2 rounded-lg border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 text-sm font-medium flex items-center justify-center whitespace-nowrap transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {requestCodingHint.isPending
                   ? "Loading…"
@@ -762,7 +762,7 @@ export function PracticeSession({ topicId }: Props) {
 
               <button
                 onClick={handleSkip}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                className="w-32 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
                 style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--muted-foreground)" }}
                 title="Skip to a different question (nothing is saved)"
               >
@@ -773,7 +773,7 @@ export function PracticeSession({ topicId }: Props) {
               <button
                 onClick={handleSubmit}
                 disabled={submit.isPending || !code.trim()}
-                className="flex-1 min-w-24 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-32 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold flex items-center justify-center whitespace-nowrap hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submit.isPending ? "Checking…" : "Submit →"}
               </button>

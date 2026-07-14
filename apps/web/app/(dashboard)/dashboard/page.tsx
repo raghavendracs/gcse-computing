@@ -422,24 +422,27 @@ export default function DashboardPage() {
         ) : (
           <div className="p-3 space-y-2">
             {tree.map(({ area, topics }) => {
-              const isOpen = expandedAreas[area] !== false; // default open
               const solved = topics.reduce((sum, t) => sum + t.solvedCount, 0);
               const total = topics.reduce((sum, t) => sum + t.totalQuestions, 0);
+              const disabledArea = total === 0; // no questions anywhere in this area
+              const isOpen = !disabledArea && expandedAreas[area] === true; // collapsed by default
               return (
                 <div key={area} className="rounded-lg overflow-hidden" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
                   {/* Area header */}
                   <button
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors"
-                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--accent)")}
+                    disabled={disabledArea}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left transition-colors disabled:cursor-not-allowed"
+                    style={{ opacity: disabledArea ? 0.45 : 1 }}
+                    onMouseEnter={(e) => { if (!disabledArea) e.currentTarget.style.backgroundColor = "var(--accent)"; }}
                     onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-                    onClick={() => setExpandedAreas((prev) => ({ ...prev, [area]: !isOpen }))}
+                    onClick={() => { if (!disabledArea) setExpandedAreas((prev) => ({ ...prev, [area]: !isOpen })); }}
                   >
                     <Code2 className="w-3.5 h-3.5 shrink-0" style={{ color: "#a855f7" }} />
                     <p className="font-semibold text-sm flex-1 min-w-0 truncate" style={{ color: "var(--foreground)" }}>{area}</p>
                     <span className="text-xs font-mono shrink-0 px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--accent)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}>
                       {solved}/{total}
                     </span>
-                    {isOpen ? <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--muted-foreground)" }} /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--muted-foreground)" }} />}
+                    {!disabledArea && (isOpen ? <ChevronDown className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--muted-foreground)" }} /> : <ChevronRight className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--muted-foreground)" }} />)}
                   </button>
 
                   {/* Sub-areas */}
@@ -447,21 +450,24 @@ export default function DashboardPage() {
                     <div style={{ borderTop: "1px solid var(--border)" }}>
                       {topics.map((topic) => {
                         const isSelected = selectedTopic?.id === topic.id;
+                        const disabledTopic = topic.totalQuestions === 0;
                         const pct = topic.totalQuestions > 0 ? topic.solvedCount / topic.totalQuestions : 0;
                         const chipColour = pct >= 1 ? "#16a34a" : pct > 0 ? "#d97706" : "var(--muted-foreground)";
                         const chipBg = pct >= 1 ? "#f0fdf4" : pct > 0 ? "#fffbeb" : "var(--accent)";
                         return (
                           <button
                             key={topic.id}
-                            className="w-full text-left transition-colors flex items-center justify-between gap-2"
+                            disabled={disabledTopic}
+                            className="w-full text-left transition-colors flex items-center justify-between gap-2 disabled:cursor-not-allowed"
                             style={{
                               padding: "6px 12px 6px 16px",
+                              opacity: disabledTopic ? 0.45 : 1,
                               backgroundColor: isSelected ? "var(--accent)" : "transparent",
                               borderLeft: isSelected ? "2px solid #6366f1" : "2px solid transparent",
                             }}
-                            onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.backgroundColor = "var(--accent)"; }}
+                            onMouseEnter={(e) => { if (!isSelected && !disabledTopic) e.currentTarget.style.backgroundColor = "var(--accent)"; }}
                             onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.backgroundColor = "transparent"; }}
-                            onClick={() => handleSelectTopic({ id: topic.id, name: topic.name, slug: topic.slug })}
+                            onClick={() => { if (!disabledTopic) handleSelectTopic({ id: topic.id, name: topic.name, slug: topic.slug }); }}
                           >
                             <p className="text-xs min-w-0 truncate" style={{ color: "var(--foreground)", fontWeight: isSelected ? "500" : "400" }}>{topic.name}</p>
                             <span className="text-xs font-mono shrink-0 px-1.5 py-0.5 rounded" style={{ backgroundColor: chipBg, color: chipColour, border: "1px solid var(--border)" }}>
