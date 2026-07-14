@@ -553,7 +553,6 @@ export default function DashboardPage() {
 
               {/* Practice area — scrollable */}
               <div className="flex-1 overflow-y-auto no-scrollbar px-5 py-4">
-                {/* @ts-expect-error — PracticeSession will accept topicId in Task 25 */}
                 <PracticeSession topicId={selectedTopic.id} key={practiceKey} />
               </div>
             </div>
