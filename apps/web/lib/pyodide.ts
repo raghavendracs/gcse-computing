@@ -1,81 +1,107 @@
 /**
- * In-browser Python execution via Pyodide (CPython compiled to WebAssembly).
- * Runs entirely on the user's device — no server sandbox involved. Used for the
- * interactive "Run in browser" playground where `input()` prompts the user and
- * `print()` output streams back live.
+ * Main-thread controller for the in-browser Python runtime (Pyodide running in
+ * a Web Worker). Output streams back via callbacks; when the program calls
+ * input(), the worker blocks on Atomics.wait and we surface the request to the
+ * UI, then unblock it with the user's typed value via provideInput().
+ *
+ * Requires cross-origin isolation (SharedArrayBuffer) — see the COOP/COEP
+ * headers in next.config.ts.
  */
 
-// Pin a known-good Pyodide release served from jsDelivr.
-const PYODIDE_VERSION = "0.26.4";
-const PYODIDE_CDN = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+let worker: Worker | null = null;
+let readyPromise: Promise<void> | null = null;
+let ready = false;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Pyodide = any;
+let meta: Int32Array | null = null; // [0]=signal, [1]=length (-1 = cancel/EOF)
+let dataView: Uint8Array | null = null;
 
-declare global {
-  interface Window {
-    loadPyodide?: (opts: { indexURL: string }) => Promise<Pyodide>;
-  }
+let onOutput: ((chunk: string) => void) | null = null;
+let onInputRequest: ((prompt: string) => void) | null = null;
+let runResolve: (() => void) | null = null;
+let runReject: ((e: Error) => void) | null = null;
+
+export function isPyodideReady(): boolean {
+  return ready;
 }
 
-let pyodidePromise: Promise<Pyodide> | null = null;
+/** Spawn the worker and load Pyodide (once). Resolves when Python is ready. */
+export function initPyodideWorker(): Promise<void> {
+  if (readyPromise) return readyPromise;
+  readyPromise = new Promise<void>((resolve, reject) => {
+    try {
+      if (typeof SharedArrayBuffer === "undefined" || !self.crossOriginIsolated) {
+        throw new Error("This browser blocked shared memory needed to run Python here.");
+      }
+      const metaSab = new SharedArrayBuffer(8);
+      const dataSab = new SharedArrayBuffer(64 * 1024);
+      meta = new Int32Array(metaSab);
+      dataView = new Uint8Array(dataSab);
 
-function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector("script[data-pyodide]")) return resolve();
-    const s = document.createElement("script");
-    s.src = src;
-    s.async = true;
-    s.dataset.pyodide = "1";
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("Could not download the Python runtime (check your connection)."));
-    document.head.appendChild(s);
+      worker = new Worker("/pyodide-worker.js");
+      worker.onerror = () => reject(new Error("The Python runtime failed to start."));
+      worker.onmessage = (e: MessageEvent) => {
+        const m = e.data;
+        switch (m.type) {
+          case "ready":
+            ready = true;
+            resolve();
+            break;
+          case "stdout":
+          case "stderr":
+            onOutput?.(m.text);
+            break;
+          case "input":
+            onInputRequest?.(m.prompt);
+            break;
+          case "done": {
+            const r = runResolve;
+            runResolve = runReject = null;
+            r?.();
+            break;
+          }
+          case "error": {
+            const j = runReject;
+            runResolve = runReject = null;
+            j?.(new Error(m.text));
+            break;
+          }
+        }
+      };
+      worker.postMessage({ type: "init", meta: metaSab, data: dataSab });
+    } catch (err) {
+      readyPromise = null;
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+  return readyPromise;
+}
+
+/** Run code in the worker. `onInputRequest` fires when the program awaits input(). */
+export function runInBrowser(
+  code: string,
+  handlers: { onOutput: (chunk: string) => void; onInputRequest: (prompt: string) => void },
+): Promise<void> {
+  if (!worker) return Promise.reject(new Error("Python runtime not initialised."));
+  onOutput = handlers.onOutput;
+  onInputRequest = handlers.onInputRequest;
+  return new Promise<void>((resolve, reject) => {
+    runResolve = resolve;
+    runReject = reject;
+    worker!.postMessage({ type: "run", code });
   });
 }
 
-/** Load Pyodide once (cached across runs) and wire interactive input(). */
-export async function loadPyodideOnce(): Promise<Pyodide> {
-  if (pyodidePromise) return pyodidePromise;
-  pyodidePromise = (async () => {
-    await loadScript(`${PYODIDE_CDN}pyodide.js`);
-    if (!window.loadPyodide) throw new Error("Python runtime failed to initialise.");
-    const py = await window.loadPyodide({ indexURL: PYODIDE_CDN });
-
-    // Route Python's input() to a browser prompt so students can enter data live.
-    py.globals.set("_js_prompt", (prompt: string) => window.prompt(prompt || "") ?? null);
-    await py.runPythonAsync(`
-import builtins as _b
-def _input(prompt=""):
-    _r = _js_prompt(str(prompt))
-    if _r is None:
-        raise EOFError("input was cancelled")
-    return str(_r)
-_b.input = _input
-del _input
-`);
-    return py;
-  })();
-  return pyodidePromise;
-}
-
-/** True if the runtime has already been downloaded (so the UI can skip the "loading" label). */
-export function isPyodideLoaded(): boolean {
-  return pyodidePromise !== null;
-}
-
-/**
- * Run `code` in the browser. `onOutput` receives stdout/stderr chunks as they
- * are produced. Throws with a readable message on a Python error.
- */
-export async function runPythonInBrowser(code: string, onOutput: (chunk: string) => void): Promise<void> {
-  const py = await loadPyodideOnce();
-  py.setStdout({ batched: (s: string) => onOutput(s + "\n") });
-  py.setStderr({ batched: (s: string) => onOutput(s + "\n") });
-  try {
-    await py.runPythonAsync(code);
-  } finally {
-    // Restore defaults so a later run starts clean.
-    py.setStdout({});
-    py.setStderr({});
+/** Unblock a pending input() with the user's value, or `null` to signal EOF/cancel. */
+export function provideInput(value: string | null): void {
+  if (!meta || !dataView) return;
+  if (value === null) {
+    Atomics.store(meta, 1, -1);
+  } else {
+    const bytes = new TextEncoder().encode(value);
+    const len = Math.min(bytes.length, dataView.length);
+    dataView.set(bytes.subarray(0, len));
+    Atomics.store(meta, 1, len);
   }
+  Atomics.store(meta, 0, 1);
+  Atomics.notify(meta, 0);
 }

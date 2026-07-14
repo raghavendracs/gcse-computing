@@ -6,14 +6,13 @@ import {
   useGetForTopic,
   useGetQuestionById,
   useListForTopic,
-  useRunCode,
   useSubmit,
   useRequestCodingHint,
 } from "~/hooks/api/questions";
 import { useStartSession, useEndSession } from "~/hooks/api/sessions";
 import { QuestionText } from "~/components/QuestionText";
 import { usePracticeTimer } from "~/contexts/PracticeTimerContext";
-import { runPythonInBrowser, loadPyodideOnce, isPyodideLoaded } from "~/lib/pyodide";
+import { initPyodideWorker, runInBrowser, provideInput, isPyodideReady } from "~/lib/pyodide";
 
 const CodeEditor = dynamic(() => import("~/app/(dashboard)/modules/[id]/coding/CodeEditor"), { ssr: false });
 
@@ -322,15 +321,15 @@ export function PracticeSession({ topicId }: Props) {
   const [excludeId, setExcludeId] = useState<string | undefined>(undefined);
 
   const [code, setCode] = useState(DEFAULT_CODE);
-  const [runResults, setRunResults] = useState<TestResult[] | null>(null);
-  const [runError, setRunError] = useState("");
   const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null);
 
-  // In-browser Python playground (Pyodide — runs on the user's device)
-  const [showBrowserRun, setShowBrowserRun] = useState(false);
+  // In-browser Python runtime (Pyodide in a worker) — "Run" executes here
   const [browserOut, setBrowserOut] = useState("");
   const [pyPhase, setPyPhase] = useState<"idle" | "loading" | "running">("idle");
   const [pyErr, setPyErr] = useState("");
+  const [awaitingInput, setAwaitingInput] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState("");
+  const awaitingRef = useRef(false);
 
   const [hints, setHints] = useState<string[]>([]);
   const [showHints, setShowHints] = useState(true);
@@ -354,7 +353,6 @@ export function PracticeSession({ topicId }: Props) {
   const isFetching = selectedQuestionId ? byId.isFetching : random.isFetching;
   const refetch = selectedQuestionId ? byId.refetch : random.refetch;
 
-  const runCode = useRunCode();
   const submit = useSubmit();
   const requestCodingHint = useRequestCodingHint();
   const startSession = useStartSession();
@@ -364,11 +362,12 @@ export function PracticeSession({ topicId }: Props) {
   useEffect(() => {
     if (!question) return;
     setCode(question.starterCode ?? DEFAULT_CODE);
-    setRunResults(null);
-    setRunError("");
     setSubmitResult(null);
     setBrowserOut("");
     setPyErr("");
+    setAwaitingInput(null);
+    setInputValue("");
+    awaitingRef.current = false;
     setHints([]);
     setShowHints(true);
     setShowModelAnswer(false);
@@ -383,6 +382,8 @@ export function PracticeSession({ topicId }: Props) {
     return () => {
       unregisterEndSession();
       stopTimer();
+      // Unblock the Python worker if it's parked waiting for input().
+      if (awaitingRef.current) provideInput(null);
       if (sessionIdRef.current) {
         endSession.mutate({ sessionId: sessionIdRef.current });
         sessionIdRef.current = null;
@@ -443,9 +444,12 @@ export function PracticeSession({ topicId }: Props) {
     setStarted(true);
     setView("practice");
     setCode(DEFAULT_CODE);
-    setRunResults(null);
-    setRunError("");
     setSubmitResult(null);
+    setBrowserOut("");
+    setPyErr("");
+    setAwaitingInput(null);
+    setInputValue("");
+    awaitingRef.current = false;
     setHints([]);
     setShowHints(true);
     setShowModelAnswer(false);
@@ -470,44 +474,44 @@ export function PracticeSession({ topicId }: Props) {
     await ensureSession();
   };
 
+  // Run = execute the code in the browser (Pyodide), interactive input() inline.
   const handleRun = async () => {
-    if (!question || !code.trim()) return;
-    setRunError("");
-    try {
-      const result = await runCode.mutateAsync({ questionId: question.id, code });
-      if (result.blocked) {
-        setRunError(`Restricted: \`${result.blockReason}\` is not allowed in GCSE practice.`);
-        setRunResults(null);
-      } else if (result.timedOut) {
-        setRunError("Code took too long — check for infinite loops.");
-        setRunResults(null);
-      } else {
-        setRunResults(result.testResults as TestResult[]);
-        if (result.stderr) {
-          setRunError(result.stderr.split("\n").slice(-2).join(" "));
-        }
-      }
-    } catch {
-      setError("Run failed. Please try again.");
-    }
-  };
-
-  const handleRunInBrowser = async () => {
     if (!code.trim() || pyPhase !== "idle") return;
     setBrowserOut("");
     setPyErr("");
+    setAwaitingInput(null);
+    setInputValue("");
+    awaitingRef.current = false;
     try {
-      if (!isPyodideLoaded()) {
+      if (!isPyodideReady()) {
         setPyPhase("loading");
-        await loadPyodideOnce();
+        await initPyodideWorker();
       }
       setPyPhase("running");
-      await runPythonInBrowser(code, (chunk) => setBrowserOut((prev) => prev + chunk));
+      await runInBrowser(code, {
+        onOutput: (chunk) => setBrowserOut((prev) => prev + chunk),
+        onInputRequest: (prompt) => {
+          setBrowserOut((prev) => prev + prompt);
+          awaitingRef.current = true;
+          setAwaitingInput(prompt);
+        },
+      });
     } catch (e) {
       setPyErr(e instanceof Error ? e.message : String(e));
     } finally {
+      awaitingRef.current = false;
+      setAwaitingInput(null);
       setPyPhase("idle");
     }
+  };
+
+  const submitBrowserInput = () => {
+    const v = inputValue;
+    setBrowserOut((prev) => prev + v + "\n");
+    setAwaitingInput(null);
+    setInputValue("");
+    awaitingRef.current = false;
+    provideInput(v);
   };
 
   const handleSubmit = async () => {
@@ -535,7 +539,6 @@ export function PracticeSession({ topicId }: Props) {
         questionId: question.id,
         code,
         currentHintLevel: hints.length,
-        testResults: runResults ?? undefined,
       });
       setHints((prev) => [...prev, hintText]);
       setShowHints(true);
@@ -721,77 +724,35 @@ export function PracticeSession({ topicId }: Props) {
               <CodeEditor value={code} onChange={(val) => { setCode(val); }} />
             </div>
 
-            {/* Run in browser — Python via WebAssembly (Pyodide); interactive input() */}
-            <div className="mb-4 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card)" }}>
-              <button
-                onClick={() => setShowBrowserRun((v) => !v)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left"
-              >
-                <Terminal className="w-3.5 h-3.5" style={{ color: "var(--muted-foreground)" }} />
-                <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>
-                  Run in browser
-                </span>
-                {showBrowserRun
-                  ? <ChevronDown className="w-4 h-4 ml-auto" style={{ color: "var(--muted-foreground)" }} />
-                  : <ChevronRight className="w-4 h-4 ml-auto" style={{ color: "var(--muted-foreground)" }} />}
-              </button>
-
-              {showBrowserRun && (
-                <div className="px-3 pb-3 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
-                  <p className="text-xs pt-2" style={{ color: "var(--muted-foreground)" }}>
-                    Runs your code with Python compiled to WebAssembly — on your device, not the server. When your program calls <code className="font-mono">input()</code>, a box pops up for you to type a value.
-                  </p>
-                  <button
-                    onClick={handleRunInBrowser}
-                    disabled={pyPhase !== "idle" || !code.trim()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ backgroundColor: "#059669", color: "#fff" }}
-                  >
-                    {pyPhase === "loading" ? (
-                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading Python…</>
-                    ) : pyPhase === "running" ? (
-                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Running…</>
-                    ) : (
-                      <><Play className="w-3.5 h-3.5" /> Run in browser</>
-                    )}
-                  </button>
-                  {pyPhase === "loading" && (
-                    <p className="text-[11px]" style={{ color: "var(--muted-foreground)" }}>
-                      First run downloads the Python runtime (~10&nbsp;MB) — this happens once, then it&apos;s cached.
-                    </p>
-                  )}
-
-                  {(browserOut || pyErr) && (
-                    <div className="space-y-2 pt-1">
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--muted-foreground)" }}>Output</p>
-                        <pre className="text-xs font-mono rounded-lg px-3 py-2 whitespace-pre-wrap overflow-x-auto" style={{ backgroundColor: "#0f172a", color: "#e2e8f0" }}>
-                          {browserOut || "(no output)"}
-                        </pre>
-                      </div>
-                      {pyErr && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wide mb-1 text-rose-500">Error</p>
-                          <pre className="text-xs font-mono rounded-lg px-3 py-2 whitespace-pre-wrap overflow-x-auto" style={{ backgroundColor: "#450a0a", color: "#fecaca" }}>
-                            {pyErr}
-                          </pre>
-                        </div>
-                      )}
+            {/* Console — Python runs in your browser (Pyodide); input() prompts inline */}
+            {(pyPhase !== "idle" || browserOut || pyErr || awaitingInput !== null) && (
+              <div className="mb-4 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+                <div className="flex items-center gap-2 px-3 py-1.5" style={{ backgroundColor: "var(--accent)" }}>
+                  <Terminal className="w-3.5 h-3.5" style={{ color: "var(--muted-foreground)" }} />
+                  <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Console</span>
+                  {pyPhase === "loading" && <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>loading Python (~10&nbsp;MB, once)…</span>}
+                  {pyPhase === "running" && awaitingInput === null && <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>running…</span>}
+                  {awaitingInput !== null && <span className="text-[10px]" style={{ color: "#059669" }}>waiting for input</span>}
+                </div>
+                <div className="text-xs font-mono px-3 py-2.5 overflow-x-auto max-h-72 overflow-y-auto" style={{ backgroundColor: "#0f172a", color: "#e2e8f0" }}>
+                  <pre className="whitespace-pre-wrap" style={{ margin: 0 }}>{browserOut}</pre>
+                  {awaitingInput !== null && (
+                    <div className="flex items-center gap-1.5">
+                      <span style={{ color: "#34d399" }}>❯</span>
+                      <input
+                        autoFocus
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submitBrowserInput(); } }}
+                        placeholder="type a value and press Enter"
+                        className="flex-1 bg-transparent outline-none text-xs font-mono placeholder:text-slate-500"
+                        style={{ color: "#e2e8f0" }}
+                      />
                     </div>
                   )}
+                  {pyErr && <pre className="whitespace-pre-wrap mt-1" style={{ margin: 0, color: "#fca5a5" }}>{pyErr}</pre>}
                 </div>
-              )}
-            </div>
-
-            {runError && (
-              <div className="mb-3 bg-rose-50 border border-rose-200 rounded-lg px-4 py-3">
-                <p className="text-xs font-semibold text-rose-700 mb-1">Error</p>
-                <p className="text-sm text-rose-800 font-mono whitespace-pre-wrap">{runError}</p>
               </div>
-            )}
-
-            {runResults && (
-              <TestResultsTable results={runResults} label="Run Results" />
             )}
 
             {error && <p className="text-rose-500 text-sm mb-3">{error}</p>}
@@ -799,12 +760,12 @@ export function PracticeSession({ topicId }: Props) {
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={handleRun}
-                disabled={runCode.isPending || !code.trim()}
-                className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={pyPhase !== "idle" || !code.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)" }}
               >
-                {runCode.isPending ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
-                {runCode.isPending ? "Running…" : "Run ▶"}
+                {pyPhase === "idle" ? <Play className="w-4 h-4" /> : <Loader2 className="w-4 h-4 animate-spin" />}
+                {pyPhase === "loading" ? "Loading…" : pyPhase === "running" ? "Running…" : "Run ▶"}
               </button>
 
               <button
@@ -836,9 +797,13 @@ export function PracticeSession({ topicId }: Props) {
                 disabled={submit.isPending || !code.trim()}
                 className="flex-1 min-w-24 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {submit.isPending ? "Submitting…" : "Submit →"}
+                {submit.isPending ? "Checking…" : "Submit →"}
               </button>
             </div>
+
+            <p className="text-[11px] mt-2 px-1" style={{ color: "var(--muted-foreground)" }}>
+              <strong style={{ color: "var(--foreground)" }}>Run</strong> executes your code in the browser (type input when prompted). <strong style={{ color: "var(--foreground)" }}>Submit</strong> checks it against the test cases and scores it.
+            </p>
           </>
         ) : (
           /* ── Post-submit: results + feedback + model answer ──────────────────── */
