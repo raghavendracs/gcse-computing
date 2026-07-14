@@ -8,6 +8,9 @@ import {
   useListForTopic,
   useSubmit,
   useRequestCodingHint,
+  useAnalyzeSubmission,
+  useSaveDraft,
+  useGetDraft,
 } from "~/hooks/api/questions";
 import { useStartSession, useEndSession } from "~/hooks/api/sessions";
 import { QuestionText } from "~/components/QuestionText";
@@ -29,31 +32,34 @@ const DIFFICULTY_CONFIG = {
 type Difficulty = "easy" | "medium" | "hard";
 type QuestionStatus = "not_attempted" | "attempted" | "solved";
 
-type TestResult = {
+type EvalCaseResult = {
   input: string;
-  expectedOutput: string;
-  actualOutput: string;
-  passed: boolean;
+  referenceOutput: string;
+  studentOutput: string;
+  matched: boolean;
+  kind: "normal" | "edge";
   hidden: boolean;
+};
+
+type GapAnalysis = {
+  summary: string;
+  matched: string[];
+  gaps: { title: string; detail: string; severity: "logic" | "edge_case" | "requirement" | "style" }[];
+  likelyComplete: boolean | null;
 };
 
 type SubmitResult = {
   attemptId: string;
-  testResults: TestResult[];
-  testsPassed: number;
-  testsFailed: number;
-  totalTests: number;
-  feedback: {
-    text: string;
-    strengths: string[];
-    missingPoints: string[];
-    syntaxValid: boolean;
-    errorCategory: "syntax" | "logic" | "runtime" | null;
-  };
+  results: EvalCaseResult[];
+  matched: number;
+  total: number;
   pointsAwarded: number;
   newTotalPoints: number;
   solved: boolean;
-  modelAnswer: string;
+  attemptsUsed: number;
+  attemptsRemaining: number;
+  revealAnswer: boolean;
+  modelAnswer: string | null;
 };
 
 type QuestionListItem = {
@@ -109,15 +115,14 @@ function DifficultySelector({ value, onChange }: { value: Difficulty; onChange: 
   );
 }
 
-// ─── Test-results table ──────────────────────────────────────────────────────
+// ─── Eval-results table ──────────────────────────────────────────────────────
 
-function TestResultsTable({ results, label }: { results: TestResult[]; label: string }) {
-  const passed = results.filter((r) => r.passed).length;
+function EvalResultsTable({ results }: { results: EvalCaseResult[] }) {
+  const visible = results.filter((r) => !r.hidden);
+  const hiddenCount = results.length - visible.length;
+  const hiddenMatched = results.filter((r) => r.hidden && r.matched).length;
   return (
-    <div className="mb-4">
-      <p className="text-xs font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: "var(--muted-foreground)" }}>
-        {label} — {passed}/{results.length} passed
-      </p>
+    <div className="mb-2">
       <div className="overflow-x-auto rounded-lg" style={{ border: "1px solid var(--border)" }}>
         <table className="w-full text-xs font-mono">
           <thead>
@@ -125,38 +130,29 @@ function TestResultsTable({ results, label }: { results: TestResult[]; label: st
               <th className="px-3 py-2 text-left font-semibold w-8" style={{ color: "var(--muted-foreground)" }}>#</th>
               <th className="px-3 py-2 text-left font-semibold" style={{ color: "var(--muted-foreground)" }}>Input</th>
               <th className="px-3 py-2 text-left font-semibold" style={{ color: "var(--muted-foreground)" }}>Expected</th>
-              <th className="px-3 py-2 text-left font-semibold" style={{ color: "var(--muted-foreground)" }}>Got</th>
+              <th className="px-3 py-2 text-left font-semibold" style={{ color: "var(--muted-foreground)" }}>Your output</th>
               <th className="px-3 py-2 text-center font-semibold w-20" style={{ color: "var(--muted-foreground)" }}>Status</th>
             </tr>
           </thead>
           <tbody>
-            {results.map((r, i) => (
+            {visible.map((r, i) => (
               <tr
                 key={i}
                 style={{
-                  borderBottom: i < results.length - 1 ? "1px solid var(--border)" : undefined,
-                  backgroundColor: r.passed ? "#f0fdf420" : "#fef2f220",
+                  borderBottom: i < visible.length - 1 ? "1px solid var(--border)" : undefined,
+                  backgroundColor: r.matched ? "#f0fdf420" : "#fef2f220",
                 }}
               >
                 <td className="px-3 py-2" style={{ color: "var(--muted-foreground)" }}>{i + 1}</td>
-                <td className="px-3 py-2 max-w-30 truncate" style={{ color: "var(--foreground)" }}>
-                  {r.hidden ? <span style={{ color: "var(--muted-foreground)" }}>—</span> : (r.input || "(none)")}
-                </td>
-                <td className="px-3 py-2 max-w-30 truncate" style={{ color: "#16a34a" }}>
-                  {r.hidden ? <span style={{ color: "var(--muted-foreground)" }}>—</span> : r.expectedOutput}
-                </td>
-                <td className="px-3 py-2 max-w-30 truncate" style={{ color: r.passed ? "#16a34a" : "#dc2626" }}>
-                  {r.hidden ? <span style={{ color: "var(--muted-foreground)" }}>—</span> : (r.actualOutput || "(no output)")}
-                </td>
+                <td className="px-3 py-2 max-w-30 truncate" style={{ color: "var(--foreground)" }}>{r.input || "(none)"}</td>
+                <td className="px-3 py-2 max-w-30 truncate" style={{ color: "#16a34a" }}>{r.referenceOutput}</td>
+                <td className="px-3 py-2 max-w-30 truncate" style={{ color: r.matched ? "#16a34a" : "#dc2626" }}>{r.studentOutput || "(no output)"}</td>
                 <td className="px-3 py-2 text-center">
                   <span
                     className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
-                    style={{
-                      backgroundColor: r.passed ? "#dcfce7" : "#fecdd3",
-                      color: r.passed ? "#16a34a" : "#dc2626",
-                    }}
+                    style={{ backgroundColor: r.matched ? "#dcfce7" : "#fecdd3", color: r.matched ? "#16a34a" : "#dc2626" }}
                   >
-                    {r.passed ? "Pass" : "Fail"}
+                    {r.matched ? "Pass" : "Fail"}
                   </span>
                 </td>
               </tr>
@@ -164,6 +160,11 @@ function TestResultsTable({ results, label }: { results: TestResult[]; label: st
           </tbody>
         </table>
       </div>
+      {hiddenCount > 0 && (
+        <p className="text-[11px] mt-1.5 px-1" style={{ color: "var(--muted-foreground)" }}>
+          + {hiddenCount} hidden edge {hiddenCount === 1 ? "case" : "cases"} — {hiddenMatched}/{hiddenCount} passed
+        </p>
+      )}
     </div>
   );
 }
@@ -323,6 +324,8 @@ export function PracticeSession({ topicId }: Props) {
 
   const [code, setCode] = useState(DEFAULT_CODE);
   const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null);
+  const [analysis, setAnalysis] = useState<GapAnalysis | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
 
   // In-browser Python runtime (Pyodide in a worker) — "Run" executes here,
   // output/input flow through a real terminal (xterm.js).
@@ -337,6 +340,9 @@ export function PracticeSession({ topicId }: Props) {
 
   const sessionIdRef = useRef<string | null>(null);
   const questionStartedAt = useRef<number>(Date.now());
+  // Tracks which question id the editor has been seeded for (from draft/starter),
+  // so autosave never fires on the seed and we seed each question exactly once.
+  const seededForId = useRef<string | null>(null);
 
   // Question source — one of these is active at a time
   const random = useGetForTopic({
@@ -353,15 +359,21 @@ export function PracticeSession({ topicId }: Props) {
   const refetch = selectedQuestionId ? byId.refetch : random.refetch;
 
   const submit = useSubmit();
+  const analyze = useAnalyzeSubmission();
+  const saveDraft = useSaveDraft();
+  const draftQ = useGetDraft(question?.id ?? "", started && !!question?.id);
   const requestCodingHint = useRequestCodingHint();
   const startSession = useStartSession();
   const endSession = useEndSession();
 
-  // Reset editor + results when the question changes
+  // Reset results/state when the question changes. Code seeding is handled by the
+  // draft-seeding effect below (which waits for the saved draft to load).
   useEffect(() => {
     if (!question) return;
-    setCode(question.starterCode ?? DEFAULT_CODE);
+    seededForId.current = null;
     setSubmitResult(null);
+    setAnalysis(null);
+    setSaveState("idle");
     if (awaitingRef.current) provideInput(null);
     awaitingRef.current = false;
     termRef.current?.clear();
@@ -373,6 +385,34 @@ export function PracticeSession({ topicId }: Props) {
     startTimer();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [question?.id]);
+
+  // Seed the editor from the saved draft (or starter code) exactly once per question.
+  useEffect(() => {
+    if (!question?.id || draftQ.isLoading) return;
+    if (seededForId.current === question.id) return;
+    const draftCode = draftQ.draft?.code;
+    setCode(draftCode && draftCode.trim() ? draftCode : (question.starterCode ?? DEFAULT_CODE));
+    seededForId.current = question.id;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question?.id, draftQ.isLoading, draftQ.draft]);
+
+  // Debounced autosave of the in-progress draft (never fires on the seed).
+  useEffect(() => {
+    if (!started || !question?.id || submitResult) return;
+    if (seededForId.current !== question.id) return;
+    const t = setTimeout(() => {
+      setSaveState("saving");
+      saveDraft
+        .mutateAsync({ questionId: question.id, code })
+        .then(() => {
+          setSaveState("saved");
+          setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 2500);
+        })
+        .catch(() => setSaveState("idle"));
+    }, 1500);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, question?.id, started, submitResult]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -518,9 +558,38 @@ export function PracticeSession({ topicId }: Props) {
         sessionId: sessionIdRef.current ?? undefined,
       });
       setSubmitResult(result as SubmitResult);
+      // Kick off the agentic gap analysis (best-effort, non-blocking).
+      setAnalysis(null);
+      const qid = question.id;
+      analyze
+        .mutateAsync({ questionId: qid, code })
+        .then((a) => setAnalysis(a as GapAnalysis))
+        .catch(() =>
+          setAnalysis({ summary: "Automated analysis unavailable.", matched: [], gaps: [], likelyComplete: null }),
+        );
     } catch {
       setError("Submission failed. Please try again.");
       startTimer();
+    }
+  };
+
+  // Return to the editor (code intact) to adapt and resubmit.
+  const handleEditResubmit = () => {
+    setSubmitResult(null);
+    setAnalysis(null);
+    setError("");
+    startTimer();
+  };
+
+  const handleSaveDraft = async () => {
+    if (!question?.id || !code.trim()) return;
+    setSaveState("saving");
+    try {
+      await saveDraft.mutateAsync({ questionId: question.id, code });
+      setSaveState("saved");
+      setTimeout(() => setSaveState((s) => (s === "saved" ? "idle" : s)), 2500);
+    } catch {
+      setSaveState("idle");
     }
   };
 
@@ -713,6 +782,22 @@ export function PracticeSession({ topicId }: Props) {
         {!submitResult ? (
           <>
             <div className="mb-3 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+              <div className="flex items-center gap-2 px-3 py-1.5" style={{ backgroundColor: "var(--accent)" }}>
+                <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>Your code</span>
+                <span className="ml-auto flex items-center gap-2">
+                  {saveState === "saving" && <span className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>Saving…</span>}
+                  {saveState === "saved" && <span className="text-[10px]" style={{ color: "#059669" }}>Saved ✓</span>}
+                  <button
+                    onClick={handleSaveDraft}
+                    disabled={saveDraft.isPending || !code.trim()}
+                    className="text-[11px] px-2 py-0.5 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ border: "1px solid var(--border)", color: "var(--foreground)" }}
+                    title="Save your progress to come back later"
+                  >
+                    Save
+                  </button>
+                </span>
+              </div>
               <CodeEditor value={code} onChange={(val) => { setCode(val); }} />
             </div>
 
@@ -786,7 +871,7 @@ export function PracticeSession({ topicId }: Props) {
         ) : (
           /* ── Post-submit: results + feedback + model answer ──────────────────── */
           <div className="space-y-3">
-            {/* Points badge */}
+            {/* Points + attempts */}
             <div className="rounded-xl p-4" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="flex items-center gap-3 flex-wrap">
                 {submitResult.pointsAwarded > 0 ? (
@@ -807,65 +892,108 @@ export function PracticeSession({ topicId }: Props) {
                 <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>
                   Total: {submitResult.newTotalPoints} pts
                 </span>
-                {hints.length > 0 && (
-                  <span className="ml-auto text-xs" style={{ color: "var(--muted-foreground)" }}>
-                    {hints.length} hint{hints.length > 1 ? "s" : ""} used
-                  </span>
-                )}
+                <span
+                  className="ml-auto text-xs font-medium px-2 py-1 rounded-full"
+                  style={{ backgroundColor: "var(--accent)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}
+                >
+                  {submitResult.solved ? "Solved 🎉" : `Attempt ${submitResult.attemptsUsed} of 3`}
+                </span>
               </div>
             </div>
 
-            {/* Full test results table */}
-            <TestResultsTable results={submitResult.testResults} label="Test Results" />
-
-            {/* AI feedback */}
-            <div className="rounded-xl p-4" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-              <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--muted-foreground)" }}>Feedback</p>
-              <p className="text-sm leading-relaxed" style={{ color: "var(--foreground)" }}>{submitResult.feedback.text}</p>
-            </div>
-
-            {submitResult.feedback.strengths.length > 0 && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-2">What you got right</p>
-                <ul className="space-y-1">
-                  {submitResult.feedback.strengths.map((s, i) => (
-                    <li key={i} className="text-sm text-emerald-800 flex gap-2"><span>✓</span><span>{s}</span></li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {submitResult.feedback.missingPoints.length > 0 && (
-              <div className="bg-rose-50 border border-rose-200 rounded-xl p-4">
-                <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide mb-2">Missing points</p>
-                <ul className="space-y-1">
-                  {submitResult.feedback.missingPoints.map((p, i) => (
-                    <li key={i} className="text-sm text-rose-800 flex gap-2"><span>✗</span><span>{p}</span></li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Model answer (collapsible) */}
-            <div className="rounded-xl p-4" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-              <button
-                onClick={() => setShowModelAnswer((v) => !v)}
-                className="flex items-center gap-2 text-sm font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
-              >
-                {showModelAnswer
-                  ? <ChevronDown className="w-4 h-4" />
-                  : <ChevronRight className="w-4 h-4" />}
-                {showModelAnswer ? "Hide model answer" : "Show model answer"}
-              </button>
-              {showModelAnswer && (
-                <pre className="mt-3 text-xs p-3 rounded-lg overflow-x-auto" style={{ backgroundColor: "var(--muted)", border: "1px solid var(--border)", color: "var(--foreground)", fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                  {submitResult.modelAnswer}
-                </pre>
+            {/* Results summary */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: "var(--muted-foreground)" }}>
+                Matched {submitResult.matched} / {submitResult.total} checks
+              </p>
+              {submitResult.total > 0 ? (
+                <EvalResultsTable results={submitResult.results} />
+              ) : (
+                <p className="text-sm px-1" style={{ color: "var(--muted-foreground)" }}>
+                  No automated checks were available for this question yet.
+                </p>
               )}
             </div>
 
-            {/* Next question */}
-            <div className="pt-2 flex items-center gap-3">
+            {/* Agentic gap analysis */}
+            <div className="rounded-xl p-4" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+              <p className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--muted-foreground)" }}>AI Analysis</p>
+              {analysis ? (
+                <div className="space-y-3">
+                  <p className="text-sm leading-relaxed" style={{ color: "var(--foreground)" }}>{analysis.summary}</p>
+                  {analysis.matched.length > 0 && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-1.5">What you got right</p>
+                      <ul className="space-y-1">
+                        {analysis.matched.map((s, i) => (
+                          <li key={i} className="text-sm text-emerald-800 flex gap-2"><span>✓</span><span>{s}</span></li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {analysis.gaps.length > 0 && (
+                    <div className="space-y-2">
+                      {analysis.gaps.map((g, i) => (
+                        <div key={i} className="bg-rose-50 border border-rose-200 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-sm font-semibold text-rose-800">{g.title}</span>
+                            <span
+                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wide"
+                              style={{ backgroundColor: "#fecdd3", color: "#9f1239" }}
+                            >
+                              {g.severity.replace("_", " ")}
+                            </span>
+                          </div>
+                          <p className="text-sm text-rose-800">{g.detail}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {analysis.gaps.length === 0 && analysis.summary !== "Automated analysis unavailable." && (
+                    <p className="text-sm text-emerald-700">No gaps found — nice work.</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm flex items-center gap-2" style={{ color: "var(--muted-foreground)" }}>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Analyzing your solution…
+                </p>
+              )}
+            </div>
+
+            {/* Best answer — only once unlocked (solved or 3 attempts used) */}
+            {submitResult.revealAnswer && submitResult.modelAnswer ? (
+              <div className="rounded-xl p-4" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+                <button
+                  onClick={() => setShowModelAnswer((v) => !v)}
+                  className="flex items-center gap-2 text-sm font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+                >
+                  {showModelAnswer ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                  {showModelAnswer ? "Hide best answer" : "Show best answer"}
+                </button>
+                {showModelAnswer && (
+                  <pre className="mt-3 text-xs p-3 rounded-lg overflow-x-auto" style={{ backgroundColor: "var(--muted)", border: "1px solid var(--border)", color: "var(--foreground)", fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                    {submitResult.modelAnswer}
+                  </pre>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-xl p-3 text-xs" style={{ backgroundColor: "var(--accent)", border: "1px solid var(--border)", color: "var(--muted-foreground)" }}>
+                🔒 The best answer unlocks after 3 attempts (or when you solve it).
+                {submitResult.attemptsRemaining > 0 ? ` ${submitResult.attemptsRemaining} attempt${submitResult.attemptsRemaining > 1 ? "s" : ""} left.` : ""}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="pt-2 flex items-center gap-3 flex-wrap">
+              {!submitResult.solved && (
+                <button
+                  onClick={handleEditResubmit}
+                  className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+                  style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--foreground)" }}
+                >
+                  ← Edit & resubmit
+                </button>
+              )}
               <DifficultySelector value={difficulty} onChange={setDifficulty} />
               <button
                 onClick={handleNextQuestion}

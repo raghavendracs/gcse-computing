@@ -6,3 +6,5 @@ export { default as HintGenerationService } from "./hint-generation-service";
 export { default as ScoringService } from "./scoring-service";
 export { default as LeaderboardService } from "./leaderboard-service";
 export { DIFFICULTY_POINTS, pointsForAttempt, awardDelta } from "./scoring-service/points";
+export { default as AgenticEvalService } from "./agentic-eval-service";
+export { default as QuestionDraftService } from "./question-draft-service";
