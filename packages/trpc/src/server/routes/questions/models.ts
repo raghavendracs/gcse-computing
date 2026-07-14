@@ -38,9 +38,32 @@ export const publicQuestionModel = z.object({
 export const getForTopicInputModel = z.object({
   topicId: z.string().describe("ID of the programming topic"),
   difficulty: z.enum(["easy", "medium", "hard"]).optional().describe("Optional difficulty filter"),
+  excludeQuestionId: z
+    .string()
+    .optional()
+    .describe("Question to skip past — never returned (used by the Skip button)"),
 });
 
 export const getForTopicOutputModel = publicQuestionModel.nullable();
+
+// ─── listForTopic (all questions in a section with the user's status) ─────────
+
+export const listForTopicInputModel = z.object({
+  topicId: z.string().describe("ID of the programming topic"),
+});
+
+export const questionListItemModel = z.object({
+  id: z.string(),
+  difficulty: z.enum(["easy", "medium", "hard"]),
+  questionType: z.enum(["write", "fix", "extend"]),
+  points: z.number(),
+  preview: z.string().describe("Short excerpt of the question text (no answers)"),
+  status: z.enum(["not_attempted", "attempted", "solved"]),
+  bestPointsAwarded: z.number(),
+  attemptsCount: z.number(),
+});
+
+export const listForTopicOutputModel = z.array(questionListItemModel);
 
 // ─── getById ─────────────────────────────────────────────────────────────────
 

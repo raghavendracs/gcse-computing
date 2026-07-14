@@ -2,13 +2,31 @@ import { trpc } from "~/trpc/client";
 
 //#region  //*=========== Queries ===========
 
-export const useGetForTopic = (q: { topicId: string; difficulty?: "easy" | "medium" | "hard" }) => {
+export const useGetForTopic = (q: {
+  topicId: string;
+  difficulty?: "easy" | "medium" | "hard";
+  excludeQuestionId?: string;
+  enabled?: boolean;
+}) => {
   const query = trpc.questions.getForTopic.useQuery(
-    { topicId: q.topicId, difficulty: q.difficulty },
-    { enabled: !!q.topicId },
+    { topicId: q.topicId, difficulty: q.difficulty, excludeQuestionId: q.excludeQuestionId },
+    { enabled: (q.enabled ?? true) && !!q.topicId },
   );
   return {
     question: query.data ?? null,
+    isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
+  };
+};
+
+export const useListForTopic = (topicId: string, enabled = true) => {
+  const query = trpc.questions.listForTopic.useQuery(
+    { topicId },
+    { enabled: enabled && !!topicId },
+  );
+  return {
+    questions: query.data ?? [],
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     refetch: query.refetch,
@@ -44,6 +62,7 @@ export const useSubmit = () => {
         utils.topics.getTree.invalidate(),
         utils.leaderboard.top.invalidate(),
         utils.history.listAttempts.invalidate(),
+        utils.questions.listForTopic.invalidate(),
       ]);
     },
   });

@@ -19,6 +19,8 @@ import {
   getForTopicOutputModel,
   getByIdInputModel,
   getByIdOutputModel,
+  listForTopicInputModel,
+  listForTopicOutputModel,
   runCodeInputModel,
   runCodeOutputModel,
   submitInputModel,
@@ -62,25 +64,28 @@ export const questionsRouter = router({
       const userId = new Types.ObjectId(ctx.user!.userId);
       const topicId = new Types.ObjectId(input.topicId);
 
-      // Find question IDs the user has already solved for this topic
+      // Exclude questions the user has already solved, plus the one being skipped past
       const solvedProgress = await QuestionProgress.find(
         { userId, topicId, solved: true },
         { questionId: 1, _id: 0 },
       );
-      const solvedIds = solvedProgress.map((p) => p.questionId);
-
-      // Build query: same topic, not solved, not deleted
-      const query: Record<string, unknown> = {
-        topicId,
-        deletedAt: null,
-        _id: { $nin: solvedIds },
-      };
-
-      if (input.difficulty) {
-        query.difficulty = input.difficulty;
+      const excludeIds = solvedProgress.map((p) => p.questionId);
+      if (input.excludeQuestionId && Types.ObjectId.isValid(input.excludeQuestionId)) {
+        excludeIds.push(new Types.ObjectId(input.excludeQuestionId));
       }
 
-      const question = await Question.findOne(query);
+      const match: Record<string, unknown> = {
+        topicId,
+        deletedAt: null,
+        _id: { $nin: excludeIds },
+      };
+      if (input.difficulty) {
+        match.difficulty = input.difficulty;
+      }
+
+      // Pick a RANDOM eligible question so Run/Skip give variety
+      const sampled = await Question.aggregate([{ $match: match }, { $sample: { size: 1 } }]);
+      const question = sampled[0];
 
       if (!question) return null;
 
@@ -94,6 +99,42 @@ export const questionsRouter = router({
         testCasePreview: buildTestCasePreview(question.testCases),
         points: question.points,
       };
+    }),
+
+  // ─── listForTopic (all questions in a section + this user's status) ──────────
+  listForTopic: authenticatedProcedure
+    .input(listForTopicInputModel)
+    .output(listForTopicOutputModel)
+    .query(async ({ ctx, input }) => {
+      const userId = new Types.ObjectId(ctx.user!.userId);
+      const topicId = new Types.ObjectId(input.topicId);
+
+      const questions = await Question.find({ topicId, deletedAt: null });
+      const progress = await QuestionProgress.find({ userId, topicId });
+      const pmap = new Map(progress.map((p) => [p.questionId.toString(), p]));
+
+      const order: Record<string, number> = { easy: 0, medium: 1, hard: 2 };
+
+      return questions
+        .map((q) => {
+          const p = pmap.get(q._id.toString());
+          const status: "not_attempted" | "attempted" | "solved" = p?.solved
+            ? "solved"
+            : p && p.attemptsCount > 0
+              ? "attempted"
+              : "not_attempted";
+          return {
+            id: q._id.toString(),
+            difficulty: q.difficulty,
+            questionType: q.questionType,
+            points: q.points,
+            preview: q.questionText.replace(/\s+/g, " ").trim().slice(0, 110),
+            status,
+            bestPointsAwarded: p?.bestPointsAwarded ?? 0,
+            attemptsCount: p?.attemptsCount ?? 0,
+          };
+        })
+        .sort((a, b) => order[a.difficulty] - order[b.difficulty]);
     }),
 
   // ─── getById ────────────────────────────────────────────────────────────────
