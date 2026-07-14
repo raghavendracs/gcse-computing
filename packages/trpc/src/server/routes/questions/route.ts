@@ -23,6 +23,8 @@ import {
   listForTopicOutputModel,
   runCodeInputModel,
   runCodeOutputModel,
+  runWithInputInputModel,
+  runWithInputOutputModel,
   submitInputModel,
   submitOutputModel,
   requestCodingHintInputModel,
@@ -187,6 +189,25 @@ export const questionsRouter = router({
       return {
         ...result,
         testResults: redacted,
+      };
+    }),
+
+  // ─── runWithInput (interactive: run the code against the user's own stdin) ────
+  runWithInput: authenticatedProcedure
+    .input(runWithInputInputModel)
+    .output(runWithInputOutputModel)
+    .mutation(async ({ input }) => {
+      const result = await codeExecSvc.execute({
+        code: input.code,
+        testCases: [{ input: input.stdin, expectedOutput: "", hidden: false }],
+        timeoutMs: 5000,
+      });
+      return {
+        stdout: result.testResults[0]?.actualOutput ?? "",
+        stderr: result.stderr,
+        timedOut: result.timedOut,
+        blocked: result.blocked,
+        blockReason: result.blockReason,
       };
     }),
 

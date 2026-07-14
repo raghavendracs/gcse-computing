@@ -54,6 +54,10 @@ export const useRunCode = () => {
   return trpc.questions.runCode.useMutation();
 };
 
+export const useRunWithInput = () => {
+  return trpc.questions.runWithInput.useMutation();
+};
+
 export const useSubmit = () => {
   const utils = trpc.useUtils();
   return trpc.questions.submit.useMutation({

@@ -90,6 +90,21 @@ export const runCodeOutputModel = z.object({
   executionPath: z.enum(["sandbox", "ai"]),
 });
 
+// ─── runWithInput (interactive: run against the user's own stdin) ─────────────
+
+export const runWithInputInputModel = z.object({
+  code: z.string().describe("Python code to execute"),
+  stdin: z.string().default("").describe("The input the user typed (fed to the program's stdin)"),
+});
+
+export const runWithInputOutputModel = z.object({
+  stdout: z.string(),
+  stderr: z.string(),
+  timedOut: z.boolean(),
+  blocked: z.boolean(),
+  blockReason: z.string().nullable(),
+});
+
 // ─── submit ───────────────────────────────────────────────────────────────────
 
 export const submitInputModel = z.object({

@@ -1,12 +1,13 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
-import { Lightbulb, Play, Loader2, ChevronDown, ChevronRight, SkipForward, List, Check } from "lucide-react";
+import { Lightbulb, Play, Loader2, ChevronDown, ChevronRight, SkipForward, List, Check, Terminal } from "lucide-react";
 import {
   useGetForTopic,
   useGetQuestionById,
   useListForTopic,
   useRunCode,
+  useRunWithInput,
   useSubmit,
   useRequestCodingHint,
 } from "~/hooks/api/questions";
@@ -325,6 +326,11 @@ export function PracticeSession({ topicId }: Props) {
   const [runError, setRunError] = useState("");
   const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null);
 
+  // Interactive "enter your own input" playground
+  const [showTryInput, setShowTryInput] = useState(false);
+  const [customInput, setCustomInput] = useState("");
+  const [customRun, setCustomRun] = useState<{ stdout: string; stderr: string; note: string } | null>(null);
+
   const [hints, setHints] = useState<string[]>([]);
   const [showHints, setShowHints] = useState(true);
   const [showModelAnswer, setShowModelAnswer] = useState(false);
@@ -348,6 +354,7 @@ export function PracticeSession({ topicId }: Props) {
   const refetch = selectedQuestionId ? byId.refetch : random.refetch;
 
   const runCode = useRunCode();
+  const runWithInput = useRunWithInput();
   const submit = useSubmit();
   const requestCodingHint = useRequestCodingHint();
   const startSession = useStartSession();
@@ -360,6 +367,7 @@ export function PracticeSession({ topicId }: Props) {
     setRunResults(null);
     setRunError("");
     setSubmitResult(null);
+    setCustomRun(null);
     setHints([]);
     setShowHints(true);
     setShowModelAnswer(false);
@@ -480,6 +488,22 @@ export function PracticeSession({ topicId }: Props) {
       }
     } catch {
       setError("Run failed. Please try again.");
+    }
+  };
+
+  const handleRunWithInput = async () => {
+    if (!code.trim()) return;
+    setCustomRun(null);
+    try {
+      const r = await runWithInput.mutateAsync({ code, stdin: customInput });
+      const note = r.blocked
+        ? `Restricted: ${r.blockReason} is not allowed.`
+        : r.timedOut
+        ? "Timed out — check for an infinite loop, or that you provided enough input lines."
+        : "";
+      setCustomRun({ stdout: r.stdout, stderr: r.stderr, note });
+    } catch {
+      setCustomRun({ stdout: "", stderr: "", note: "Run failed. Please try again." });
     }
   };
 
@@ -690,8 +714,70 @@ export function PracticeSession({ topicId }: Props) {
         {/* ── Pre-submit: editor + run/hint/skip/submit ────────────────────────── */}
         {!submitResult ? (
           <>
-            <div className="mb-4 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+            <div className="mb-3 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
               <CodeEditor value={code} onChange={(val) => { setCode(val); }} />
+            </div>
+
+            {/* Try with your own input — interactive run against user-typed stdin */}
+            <div className="mb-4 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card)" }}>
+              <button
+                onClick={() => setShowTryInput((v) => !v)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left"
+              >
+                <Terminal className="w-3.5 h-3.5" style={{ color: "var(--muted-foreground)" }} />
+                <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--muted-foreground)" }}>
+                  Try with your own input
+                </span>
+                {showTryInput
+                  ? <ChevronDown className="w-4 h-4 ml-auto" style={{ color: "var(--muted-foreground)" }} />
+                  : <ChevronRight className="w-4 h-4 ml-auto" style={{ color: "var(--muted-foreground)" }} />}
+              </button>
+
+              {showTryInput && (
+                <div className="px-3 pb-3 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
+                  <p className="text-xs pt-2" style={{ color: "var(--muted-foreground)" }}>
+                    Enter the values your program reads with <code className="font-mono">input()</code> — one per line — then run it.
+                  </p>
+                  <textarea
+                    value={customInput}
+                    onChange={(e) => setCustomInput(e.target.value)}
+                    rows={3}
+                    spellCheck={false}
+                    placeholder={"e.g.\n10\n5"}
+                    className="w-full text-sm font-mono rounded-lg px-3 py-2 resize-y focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                    style={{ backgroundColor: "var(--muted)", border: "1px solid var(--border)", color: "var(--foreground)" }}
+                  />
+                  <button
+                    onClick={handleRunWithInput}
+                    disabled={runWithInput.isPending || !code.trim()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: "#059669", color: "#fff" }}
+                  >
+                    {runWithInput.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                    Run with this input
+                  </button>
+
+                  {customRun && (
+                    <div className="space-y-2 pt-1">
+                      {customRun.note && <p className="text-xs text-rose-600">{customRun.note}</p>}
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--muted-foreground)" }}>Output</p>
+                        <pre className="text-xs font-mono rounded-lg px-3 py-2 whitespace-pre-wrap overflow-x-auto" style={{ backgroundColor: "#0f172a", color: "#e2e8f0" }}>
+                          {customRun.stdout || "(no output)"}
+                        </pre>
+                      </div>
+                      {customRun.stderr && (
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide mb-1 text-rose-500">Errors</p>
+                          <pre className="text-xs font-mono rounded-lg px-3 py-2 whitespace-pre-wrap overflow-x-auto" style={{ backgroundColor: "#450a0a", color: "#fecaca" }}>
+                            {customRun.stderr}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {runError && (
