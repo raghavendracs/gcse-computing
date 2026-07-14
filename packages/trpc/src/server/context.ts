@@ -4,8 +4,6 @@ import jwt from "jsonwebtoken";
 
 export interface JWTPayload {
   userId: string;
-  role: "parent" | "student";
-  parentId?: string;
 }
 
 export interface TRPCContext {

@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { Types } from "mongoose";
-import { QuestionAttempt, GeneratedQuestion, User } from "@gcse/database";
+import { QuestionAttempt, Question } from "@gcse/database";
 import { authenticatedProcedure, router } from "../../trpc";
 import {
   listAttemptsInputModel,
@@ -14,35 +14,21 @@ export const historyRouter = router({
     .input(listAttemptsInputModel)
     .output(listAttemptsOutputModel)
     .query(async ({ ctx, input }) => {
-      // If studentId provided, verify the caller is the student's parent
-      let targetUserId = ctx.user!.userId;
-      if (input.studentId) {
-        const student = await User.findOne({
-          $and: [
-            { _id: new Types.ObjectId(input.studentId) },
-            { parentId: new Types.ObjectId(ctx.user!.userId) },
-            { deletedAt: null },
-          ],
-        });
-        if (!student) throw new TRPCError({ code: "FORBIDDEN", message: "Student not found" });
-        targetUserId = input.studentId;
-      }
       const conditions: object[] = [
-        { userId: new Types.ObjectId(targetUserId) },
+        { userId: new Types.ObjectId(ctx.user!.userId) },
         { deletedAt: null },
       ];
 
-      if (input.moduleIds && input.moduleIds.length > 0) {
-        conditions.push({ moduleId: { $in: input.moduleIds.map((id) => new Types.ObjectId(id)) } });
-      } else if (input.moduleId) {
-        conditions.push({ moduleId: new Types.ObjectId(input.moduleId) });
+      if (input.topicIds && input.topicIds.length > 0) {
+        conditions.push({ topicId: { $in: input.topicIds.map((id) => new Types.ObjectId(id)) } });
       }
+
       if (input.continuationToken) {
         conditions.push({ _id: { $lt: new Types.ObjectId(input.continuationToken) } });
       }
 
       const attempts = await QuestionAttempt.find({ $and: conditions })
-        .sort({ createdAt: -1 })
+        .sort({ _id: -1 })
         .limit(input.limit + 1);
 
       const hasMore = attempts.length > input.limit;
@@ -53,14 +39,15 @@ export const historyRouter = router({
         attempts: toReturn.map((a) => ({
           id: a._id.toString(),
           questionId: a.questionId.toString(),
-          moduleId: a.moduleId.toString(),
+          topicId: a.topicId.toString(),
           attemptNumber: a.attemptNumber,
-          submissionType: a.submissionType,
-          awardedMarks: a.assessment.awardedMarks,
-          maxMarks: a.assessment.maxMarks,
-          feedback: a.assessment.feedback,
-          missingPoints: a.assessment.missingPoints,
-          strengths: a.assessment.strengths,
+          testsPassed: a.testsPassed,
+          testsFailed: a.testsFailed,
+          totalTests: a.totalTests,
+          pointsAwardedThisAttempt: a.pointsAwardedThisAttempt,
+          feedback: a.feedback.text,
+          strengths: a.feedback.strengths,
+          missingPoints: a.feedback.missingPoints,
           hintsUsedCount: a.hintsUsedCount,
           timeSpentSeconds: a.timeSpentSeconds,
           createdAt: a.createdAt.toString(),
@@ -74,48 +61,42 @@ export const historyRouter = router({
     .input(getAttemptDetailInputModel)
     .output(getAttemptDetailOutputModel)
     .query(async ({ ctx, input }) => {
-      let targetUserId = ctx.user!.userId;
-      if (input.studentId) {
-        const student = await User.findOne({
-          $and: [
-            { _id: new Types.ObjectId(input.studentId) },
-            { parentId: new Types.ObjectId(ctx.user!.userId) },
-            { deletedAt: null },
-          ],
-        });
-        if (!student) throw new TRPCError({ code: "FORBIDDEN", message: "Student not found" });
-        targetUserId = input.studentId;
-      }
       const attempt = await QuestionAttempt.findOne({
         $and: [
           { _id: new Types.ObjectId(input.attemptId) },
-          { userId: new Types.ObjectId(targetUserId) },
+          { userId: new Types.ObjectId(ctx.user!.userId) },
           { deletedAt: null },
         ],
       });
       if (!attempt) throw new TRPCError({ code: "NOT_FOUND", message: "Attempt not found" });
 
-      // Fetch question for enriched context
-      const question = await GeneratedQuestion.findOne({ _id: attempt.questionId });
+      const question = await Question.findOne({ _id: attempt.questionId });
 
       return {
         id: attempt._id.toString(),
         questionId: attempt.questionId.toString(),
-        moduleId: attempt.moduleId.toString(),
+        topicId: attempt.topicId.toString(),
         attemptNumber: attempt.attemptNumber,
-        submittedAnswer: attempt.submittedAnswer,
-        submissionType: attempt.submissionType,
-        assessment: {
-          awardedMarks: attempt.assessment.awardedMarks,
-          maxMarks: attempt.assessment.maxMarks,
-          feedback: attempt.assessment.feedback,
-          missingPoints: attempt.assessment.missingPoints,
-          strengths: attempt.assessment.strengths,
-          confidence: attempt.assessment.confidence,
+        submittedCode: attempt.submittedCode,
+        testResults: attempt.testResults.map((r) =>
+          r.hidden
+            ? { input: r.input, expectedOutput: "", actualOutput: r.passed ? "" : "(hidden)", passed: r.passed, hidden: r.hidden }
+            : { input: r.input, expectedOutput: r.expectedOutput, actualOutput: r.actualOutput, passed: r.passed, hidden: r.hidden }
+        ),
+        testsPassed: attempt.testsPassed,
+        testsFailed: attempt.testsFailed,
+        totalTests: attempt.totalTests,
+        feedback: {
+          text: attempt.feedback.text,
+          strengths: attempt.feedback.strengths,
+          missingPoints: attempt.feedback.missingPoints,
+          syntaxValid: attempt.feedback.syntaxValid,
+          errorCategory: attempt.feedback.errorCategory,
         },
+        pointsAwardedThisAttempt: attempt.pointsAwardedThisAttempt,
         questionText: question?.questionText,
         modelAnswer: question?.modelAnswer,
-        markSchemePoints: question?.markSchemePoints,
+        difficulty: question?.difficulty,
         hints: question?.hints,
         hintsUsedCount: attempt.hintsUsedCount,
         timeSpentSeconds: attempt.timeSpentSeconds,

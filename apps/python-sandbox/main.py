@@ -58,11 +58,19 @@ def check_blocked_imports(code: str) -> Optional[str]:
                     return f"import {mod}"
     return None
 
+# input(prompt) writes the prompt to STDOUT, which would pollute the output we
+# compare against expectedOutput (a program that reads from stdin and prints its
+# answer should not have "Enter a value:" prepended to that answer). This shim
+# reads from stdin exactly like the builtin but drops the prompt. Kept on a
+# single physical line so user tracebacks keep their original line numbers.
+INPUT_PROMPT_SHIM = "_orig_input = input; input = lambda *a, **k: _orig_input()\n"
+
+
 def run_single_test(code: str, test_input: str, timeout_s: float) -> tuple[str, str, bool, bool]:
     """Returns (stdout, stderr, timed_out, errored)"""
     try:
         result = subprocess.run(
-            [sys.executable, "-c", code],
+            [sys.executable, "-c", INPUT_PROMPT_SHIM + code],
             input=test_input,
             capture_output=True,
             text=True,

@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { Types } from "mongoose";
 import { QuestionAttempt, StudySession } from "@gcse/database";
-import { studentProcedure, parentOnlyProcedure, authenticatedProcedure, router } from "../../trpc";
+import { authenticatedProcedure, router } from "../../trpc";
 import {
   startSessionInputModel,
   startSessionOutputModel,
@@ -13,13 +13,12 @@ import {
 } from "./models";
 
 export const sessionsRouter = router({
-  startSession: studentProcedure
+  startSession: authenticatedProcedure
     .input(startSessionInputModel)
     .output(startSessionOutputModel)
     .mutation(async ({ ctx, input }) => {
       const session = await StudySession.insertOne({
         userId: new Types.ObjectId(ctx.user!.userId),
-        ...(input.moduleId ? { moduleId: new Types.ObjectId(input.moduleId) } : {}),
         mode: input.mode,
         startedAt: new Date(),
         questionIds: [],
@@ -28,7 +27,7 @@ export const sessionsRouter = router({
       return { sessionId: session._id.toString() };
     }),
 
-  endSession: studentProcedure
+  endSession: authenticatedProcedure
     .input(endSessionInputModel)
     .output(endSessionOutputModel)
     .mutation(async ({ ctx, input }) => {
@@ -50,10 +49,14 @@ export const sessionsRouter = router({
       });
 
       const questionsAttempted = session.questionIds.length;
-      const totalScore = attempts.reduce((sum, a) => sum + a.assessment.awardedMarks, 0);
-      const totalMaxScore = attempts.reduce((sum, a) => sum + a.assessment.maxMarks, 0);
-      const averageScore = totalMaxScore > 0 ? totalScore / totalMaxScore : 0;
-      const hintsUsed = attempts.reduce((sum, a) => sum + a.hintsUsedCount, 0);
+      const averageScore =
+        attempts.length > 0
+          ? attempts.reduce(
+              (sum, a) => sum + (a.totalTests > 0 ? a.testsPassed / a.totalTests : 0),
+              0,
+            ) / attempts.length
+          : 0;
+      const hintsUsed = attempts.reduce((sum, a) => sum + (a.hintsUsedCount ?? 0), 0);
       const endedAt = new Date();
 
       await StudySession.findOneAndUpdate(
@@ -64,13 +67,16 @@ export const sessionsRouter = router({
       return { success: true, summary: { questionsAttempted, averageScore, hintsUsed } };
     }),
 
-  listSessions: studentProcedure
+  listSessions: authenticatedProcedure
     .input(listSessionsInputModel)
     .output(listSessionsOutputModel)
     .query(async ({ ctx, input }) => {
-      const sessions = await StudySession.find({ userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null })
+      const sessions = await StudySession.find({
+        userId: new Types.ObjectId(ctx.user!.userId),
+        deletedAt: null,
+      })
         .sort({ startedAt: -1 })
-        .limit(input.limit ?? 20);
+        .limit(input?.limit ?? 20);
 
       return {
         sessions: sessions.map((s) => ({
@@ -86,30 +92,7 @@ export const sessionsRouter = router({
       };
     }),
 
-  listStudentSessions: parentOnlyProcedure
-    .input(listSessionsInputModel)
-    .output(listSessionsOutputModel)
-    .query(async ({ input }) => {
-      if (!input.studentId) return { sessions: [] };
-      const sessions = await StudySession.find({ userId: new Types.ObjectId(input.studentId), deletedAt: null })
-        .sort({ startedAt: -1 })
-        .limit(input.limit ?? 20);
-
-      return {
-        sessions: sessions.map((s) => ({
-          id: s._id.toString(),
-          mode: s.mode,
-          startedAt: s.startedAt.toISOString(),
-          endedAt: s.endedAt?.toISOString(),
-          durationSeconds: s.endedAt
-            ? Math.round((s.endedAt.getTime() - s.startedAt.getTime()) / 1000)
-            : undefined,
-          summary: s.summary,
-        })),
-      };
-    }),
-
-  getTotalTimeSpent: studentProcedure
+  getTotalTimeSpent: authenticatedProcedure
     .output(getTotalTimeSpentOutputModel)
     .query(async ({ ctx }) => {
       const attempts = await QuestionAttempt.find({

@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Ace GCSE Computing",
-  description: "AI-powered GCSE Computer Science practice — exam board aligned questions, instant feedback, track your progress.",
+  description: "Python programming practice with instant automated marking and a public leaderboard — write code, run tests, earn points.",
   icons: { icon: "/logo.png" },
 };
 

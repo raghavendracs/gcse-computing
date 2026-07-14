@@ -1,11 +1,7 @@
-export type AIModelPreference = "accurate" | "balanced" | "budget";
+export function getEvalModel(): string {
+  return process.env.EVAL_MODEL ?? "claude-haiku-4-5-20251001";
+}
 
-const MODEL_MAP: Record<AIModelPreference, string> = {
-  accurate: "claude-sonnet-4-6",
-  balanced: "claude-sonnet-4-6",
-  budget: "claude-haiku-4-5-20251001",
-};
-
-export function getModelId(preference: AIModelPreference = "balanced"): string {
-  return MODEL_MAP[preference];
+export function getSeedModel(): string {
+  return process.env.SEED_MODEL ?? "claude-sonnet-4-6";
 }

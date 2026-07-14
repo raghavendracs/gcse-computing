@@ -28,19 +28,6 @@ export const useListSessions = (opts?: { limit?: number; enabled?: boolean }) =>
   };
 };
 
-export const useListStudentSessions = (studentId: string | undefined) => {
-  const query = trpc.sessions.listStudentSessions.useQuery(
-    { studentId: studentId ?? "", limit: 20 },
-    { enabled: !!studentId },
-  );
-  return {
-    sessions: query.data?.sessions ?? [],
-    isLoading: query.isLoading,
-    isFetching: query.isFetching,
-    isError: query.isError,
-  };
-};
-
 export const useGetTotalTimeSpent = () => {
   const query = trpc.sessions.getTotalTimeSpent.useQuery();
   return {

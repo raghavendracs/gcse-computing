@@ -6,8 +6,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
-    "seed:edexcel": "tsx src/seeds/run-seed.ts"
+    "dev": "tsc --watch"
   },
   "dependencies": {
     "mongoose": "^8.3.0"

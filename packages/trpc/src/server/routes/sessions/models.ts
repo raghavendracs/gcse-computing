@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 export const startSessionInputModel = z.object({
-  moduleId: z.string().optional(),
   mode: z.enum(["theory", "coding", "mixed", "timed", "review"]),
 });
 
@@ -23,7 +22,6 @@ export const endSessionOutputModel = z.object({
 });
 
 export const listSessionsInputModel = z.object({
-  studentId: z.string().optional(),
   limit: z.number().min(1).max(100).default(20).optional(),
 });
 

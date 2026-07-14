@@ -27,24 +27,6 @@ export const useLogout = () => {
   });
 };
 
-export const useCreateStudent = () => {
-  const utils = trpc.useUtils();
-  return trpc.auth.createStudent.useMutation({
-    onSuccess: async () => {
-      await utils.auth.getStudents.invalidate();
-    },
-  });
-};
-
-export const useDeleteStudent = () => {
-  const utils = trpc.useUtils();
-  return trpc.auth.deleteStudent.useMutation({
-    onSuccess: async () => {
-      await utils.auth.getStudents.invalidate();
-    },
-  });
-};
-
 export const useUpdateProfile = () => {
   const utils = trpc.useUtils();
   return trpc.auth.updateProfile.useMutation({
@@ -67,15 +49,6 @@ export const useMe = () => {
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     refetch: query.refetch,
-  };
-};
-
-export const useStudents = () => {
-  const query = trpc.auth.getStudents.useQuery();
-  return {
-    students: query.data ?? [],
-    isLoading: query.isLoading,
-    isFetching: query.isFetching,
   };
 };
 

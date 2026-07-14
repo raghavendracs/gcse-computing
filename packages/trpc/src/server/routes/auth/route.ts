@@ -1,15 +1,9 @@
 import { z } from "zod";
-import {
-  authenticatedProcedure,
-  parentOnlyProcedure,
-  publicProcedure,
-  router,
-} from "../../trpc";
+import { TRPCError } from "@trpc/server";
+import { authenticatedProcedure, publicProcedure, router } from "../../trpc";
 import {
   signupInputModel,
   loginInputModel,
-  createStudentInputModel,
-  deleteStudentInputModel,
   updateProfileInputModel,
   publicUserModel,
 } from "./models";
@@ -20,9 +14,20 @@ const authService = new AuthService(process.env.JWT_SECRET || "dev-secret-change
 export const authRouter = router({
   signup: publicProcedure
     .input(signupInputModel)
-    .output(publicUserModel)
-    .mutation(async ({ input }) => {
-      return authService.signupParent(input);
+    .output(z.object({ user: publicUserModel }))
+    .mutation(async ({ ctx, input }) => {
+      await authService.signup(input);
+      const { token, user } = await authService.login({
+        email: input.email,
+        password: input.password,
+      });
+      ctx.res.cookie("gcse_token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      return { user };
     }),
 
   login: publicProcedure
@@ -49,31 +54,14 @@ export const authRouter = router({
   me: authenticatedProcedure
     .output(publicUserModel)
     .query(async ({ ctx }) => {
-      return authService.getUserById(ctx.user!.userId);
-    }),
-
-  createStudent: parentOnlyProcedure
-    .input(createStudentInputModel)
-    .output(publicUserModel)
-    .mutation(async ({ ctx, input }) => {
-      return authService.createStudent({
-        ...input,
-        parentId: ctx.user!.userId,
-      });
-    }),
-
-  getStudents: parentOnlyProcedure
-    .output(z.array(publicUserModel))
-    .query(async ({ ctx }) => {
-      return authService.getStudentsForParent(ctx.user!.userId);
-    }),
-
-  deleteStudent: parentOnlyProcedure
-    .input(deleteStudentInputModel)
-    .output(z.object({ success: z.boolean() }))
-    .mutation(async ({ ctx, input }) => {
-      await authService.deleteStudent(ctx.user!.userId, input.studentId);
-      return { success: true };
+      try {
+        return await authService.getUserById(ctx.user!.userId);
+      } catch {
+        // Valid JWT but the user no longer exists (e.g. account deleted or DB
+        // reset). Clear the stale cookie and report a clean 401 instead of 500.
+        ctx.res.clearCookie("gcse_token");
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Session no longer valid" });
+      }
     }),
 
   updateProfile: authenticatedProcedure

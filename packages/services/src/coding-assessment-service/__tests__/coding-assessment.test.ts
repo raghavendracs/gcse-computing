@@ -40,9 +40,7 @@ describe("CodingAssessmentService", () => {
       testResults: [
         { input: "1", expectedOutput: "1", actualOutput: "Error", passed: false, hidden: false },
       ],
-      markSchemePoints: ["p1", "p2", "p3", "p4", "p5", "p6"],
-      maxMarks: 6,
-      modelId: "claude-haiku-4-5-20251001",
+      pointsAvailable: 6,
     });
 
     expect(result.awardedMarks).toBe(4);
@@ -51,7 +49,7 @@ describe("CodingAssessmentService", () => {
     expect(result.strengths).toHaveLength(2);
   });
 
-  it("clamps awardedMarks to maxMarks", async () => {
+  it("clamps awardedMarks to pointsAvailable", async () => {
     mockClient.messages.create.mockResolvedValue({
       content: [{ type: "text", text: JSON.stringify({ ...validResponse, awardedMarks: 99 }) }],
     });
@@ -60,9 +58,7 @@ describe("CodingAssessmentService", () => {
       questionText: "Q",
       submittedCode: "pass",
       testResults: [],
-      markSchemePoints: ["p1"],
-      maxMarks: 2,
-      modelId: "claude-haiku-4-5-20251001",
+      pointsAvailable: 2,
     });
 
     expect(result.awardedMarks).toBe(2);
@@ -77,9 +73,7 @@ describe("CodingAssessmentService", () => {
       questionText: "Q",
       submittedCode: "pass",
       testResults: [],
-      markSchemePoints: ["p1"],
-      maxMarks: 6,
-      modelId: "claude-haiku-4-5-20251001",
+      pointsAvailable: 6,
     });
 
     expect(result.feedback).toBeTruthy();

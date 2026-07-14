@@ -72,7 +72,7 @@ export default function LoginPage() {
       <p className="mt-4 text-center text-sm text-slate-500">
         No account?{" "}
         <Link href="/signup" className="text-indigo-600 hover:underline font-medium">
-          Sign up as a parent
+          Sign up
         </Link>
       </p>
     </div>

@@ -1,253 +1,178 @@
 import { TRPCError } from "@trpc/server";
 import { Types } from "mongoose";
-import { GeneratedQuestion, HintEvent, Module, QuestionAttempt, StudySession } from "@gcse/database";
-import { QuestionGenerationService, TheoryMarkingService, CodeExecutionService, CodingAssessmentService, HintGenerationService, ProgressService } from "@gcse/services";
-import { studentProcedure, router } from "../../trpc";
 import {
-  generateQuestionInputModel,
-  generatedQuestionOutputModel,
-  generateQuestionSupportInputModel,
-  generateQuestionSupportOutputModel,
-  submitAnswerInputModel,
-  submitAnswerOutputModel,
-  requestHintInputModel,
-  requestHintOutputModel,
+  Question,
+  QuestionAttempt,
+  QuestionProgress,
+  HintEvent,
+  StudySession,
+} from "@gcse/database";
+import {
+  CodeExecutionService,
+  CodingAssessmentService,
+  ScoringService,
+  HintGenerationService,
+} from "@gcse/services";
+import { authenticatedProcedure, router } from "../../trpc";
+import {
+  getForTopicInputModel,
+  getForTopicOutputModel,
+  getByIdInputModel,
+  getByIdOutputModel,
+  listForTopicInputModel,
+  listForTopicOutputModel,
   runCodeInputModel,
   runCodeOutputModel,
+  runWithInputInputModel,
+  runWithInputOutputModel,
+  submitInputModel,
+  submitOutputModel,
   requestCodingHintInputModel,
   requestCodingHintOutputModel,
 } from "./models";
 
-const questionGenSvc = new QuestionGenerationService();
-const markingSvc = new TheoryMarkingService();
+//#region  //*=========== Service singletons ===========
+
 const codeExecSvc = new CodeExecutionService();
 const codingAssessmentSvc = new CodingAssessmentService();
+const scoringSvc = new ScoringService();
 const hintGenSvc = new HintGenerationService();
-const progressSvc = new ProgressService();
+
+//#endregion  //*======== Service singletons ===========
+
+//#region  //*=========== Helpers ===========
+
+/**
+ * Build the testCasePreview for public question responses.
+ * Non-hidden cases expose `input` + `description`; hidden cases are represented
+ * as empty strings so the client knows the count but not the content.
+ */
+function buildTestCasePreview(testCases: { input: string; description: string; hidden: boolean }[]) {
+  return testCases.map((tc) =>
+    tc.hidden
+      ? { input: "", description: "", hidden: true }
+      : { input: tc.input, description: tc.description, hidden: false },
+  );
+}
+
+//#endregion  //*======== Helpers ===========
 
 export const questionsRouter = router({
-  generateQuestion: studentProcedure
-    .input(generateQuestionInputModel)
-    .output(generatedQuestionOutputModel)
-    .mutation(async ({ ctx, input }) => {
-      return questionGenSvc.generateQuestion({
-        moduleId: input.moduleId,
-        userId: ctx.user!.userId,
-        difficulty: input.difficulty,
-        examBoard: input.examBoard,
-        mode: input.mode,
-      });
-    }),
+  // ─── getForTopic ────────────────────────────────────────────────────────────
+  getForTopic: authenticatedProcedure
+    .input(getForTopicInputModel)
+    .output(getForTopicOutputModel)
+    .query(async ({ ctx, input }) => {
+      const userId = new Types.ObjectId(ctx.user!.userId);
+      const topicId = new Types.ObjectId(input.topicId);
 
-  generateQuestionSupport: studentProcedure
-    .input(generateQuestionSupportInputModel)
-    .output(generateQuestionSupportOutputModel)
-    .mutation(async ({ ctx, input }) => {
-      // Verify ownership before generating support
-      const question = await GeneratedQuestion.findOne({
-        $and: [
-          { _id: new Types.ObjectId(input.questionId) },
-          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
-        ],
-      });
-      if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
-
-      return questionGenSvc.generateQuestionSupport(input.questionId);
-    }),
-
-  submitAnswer: studentProcedure
-    .input(submitAnswerInputModel)
-    .output(submitAnswerOutputModel)
-    .mutation(async ({ ctx, input }) => {
-      const question = await GeneratedQuestion.findOne({
-        $and: [
-          { _id: new Types.ObjectId(input.questionId) },
-          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
-        ],
-      });
-      if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
-
-      const priorCount = await QuestionAttempt.countDocuments({
-        $and: [
-          { questionId: question._id },
-          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
-        ],
-      });
-
-      let assessmentResult: {
-        awardedMarks: number;
-        maxMarks: number;
-        feedback: string;
-        missingPoints: string[];
-        strengths: string[];
-        confidence: number;
-      };
-      let codingAnalysis: {
-        syntaxValid: boolean;
-        testsPassed: number;
-        testsFailed: number;
-        errorCategory: "syntax" | "logic" | "runtime" | null;
-        executionPath: "sandbox" | "ai";
-      } | undefined;
-
-      if (question.answerFormat === "code") {
-        const execResult = await codeExecSvc.execute({
-          code: input.answer,
-          testCases: question.testCases,
-          timeoutMs: 5000,
-        });
-
-        const modelId = await questionGenSvc.resolveModelForUser(ctx.user!.userId);
-        const aiAssessment = await codingAssessmentSvc.assessCode({
-          questionText: question.questionText,
-          submittedCode: input.answer,
-          testResults: execResult.testResults,
-          markSchemePoints: question.markSchemePoints,
-          maxMarks: question.maxMarks,
-          modelId,
-        });
-
-        assessmentResult = {
-          awardedMarks: aiAssessment.awardedMarks,
-          maxMarks: question.maxMarks,
-          feedback: aiAssessment.feedback,
-          missingPoints: aiAssessment.missingPoints,
-          strengths: aiAssessment.strengths,
-          confidence: aiAssessment.confidence,
-        };
-        codingAnalysis = {
-          syntaxValid: aiAssessment.syntaxValid,
-          testsPassed: execResult.testResults.filter((r) => r.passed).length,
-          testsFailed: execResult.testResults.filter((r) => !r.passed).length,
-          errorCategory: aiAssessment.errorCategory,
-          executionPath: execResult.executionPath,
-        };
-      } else {
-        const marking = await markingSvc.markAnswer({
-          questionText: question.questionText,
-          markSchemePoints: question.markSchemePoints,
-          submittedAnswer: input.answer,
-          maxMarks: question.maxMarks,
-        });
-        assessmentResult = {
-          awardedMarks: marking.awardedMarks,
-          maxMarks: question.maxMarks,
-          feedback: marking.feedback,
-          missingPoints: marking.missingPoints,
-          strengths: marking.strengths,
-          confidence: marking.confidence,
-        };
-      }
-
-      const attempt = await QuestionAttempt.insertOne({
-        userId: new Types.ObjectId(ctx.user!.userId),
-        questionId: question._id,
-        moduleId: question.moduleId,
-        attemptNumber: priorCount + 1,
-        submittedAnswer: input.answer,
-        submissionType: question.answerFormat === "code" ? "code" : "text",
-        assessment: assessmentResult,
-        codingAnalysis,
-        hintsUsedCount: input.hintsUsed,
-        timeSpentSeconds: input.timeSpentSeconds,
-      });
-
-      await GeneratedQuestion.updateOne(
-        { _id: question._id },
-        { $set: { usedInSession: true } },
+      // Exclude questions the user has already solved, plus the one being skipped past
+      const solvedProgress = await QuestionProgress.find(
+        { userId, topicId, solved: true },
+        { questionId: 1, _id: 0 },
       );
-
-      // Fetch module name for progress tracking
-      const mod = await Module.findOne({ _id: question.moduleId });
-
-      // Update student progress (fire-and-forget — don't block response)
-      if (mod) {
-        progressSvc.updateAfterAttempt({
-          userId: ctx.user!.userId,
-          moduleId: question.moduleId.toString(),
-          moduleName: mod.moduleName,
-          awardedMarks: assessmentResult.awardedMarks,
-          maxMarks: assessmentResult.maxMarks,
-          hintsUsed: input.hintsUsed,
-          submissionType: question.answerFormat === "code" ? "code" : "text",
-          hadError: codingAnalysis?.errorCategory != null,
-        }).catch(() => { /* non-blocking */ });
+      const excludeIds = solvedProgress.map((p) => p.questionId);
+      if (input.excludeQuestionId && Types.ObjectId.isValid(input.excludeQuestionId)) {
+        excludeIds.push(new Types.ObjectId(input.excludeQuestionId));
       }
 
-      // Spaced repetition: retire correctly-answered questions for 7 days
-      if (assessmentResult.awardedMarks === assessmentResult.maxMarks) {
-        const reviewAt = new Date();
-        reviewAt.setDate(reviewAt.getDate() + 7);
-        await GeneratedQuestion.updateOne(
-          { _id: question._id },
-          { $set: { nextReviewAt: reviewAt } },
-        );
+      const match: Record<string, unknown> = {
+        topicId,
+        deletedAt: null,
+        _id: { $nin: excludeIds },
+      };
+      if (input.difficulty) {
+        match.difficulty = input.difficulty;
       }
 
-      if (input.sessionId) {
-        await StudySession.updateOne(
-          {
-            $and: [
-              { _id: new Types.ObjectId(input.sessionId) },
-              { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
-            ],
-          },
-          { $addToSet: { questionIds: question._id } },
-        );
-      }
+      // Pick a RANDOM eligible question so Run/Skip give variety
+      const sampled = await Question.aggregate([{ $match: match }, { $sample: { size: 1 } }]);
+      const question = sampled[0];
+
+      if (!question) return null;
 
       return {
-        attemptId: attempt._id.toString(),
-        assessment: assessmentResult,
-        modelAnswer: question.modelAnswer,
-        markSchemePoints: question.markSchemePoints,
+        id: question._id.toString(),
+        topicId: question.topicId.toString(),
+        difficulty: question.difficulty,
+        questionType: question.questionType,
+        questionText: question.questionText,
+        ...(question.starterCode ? { starterCode: question.starterCode } : {}),
+        testCasePreview: buildTestCasePreview(question.testCases),
+        points: question.points,
       };
     }),
 
-  requestHint: studentProcedure
-    .input(requestHintInputModel)
-    .output(requestHintOutputModel)
-    .mutation(async ({ ctx, input }) => {
-      const question = await GeneratedQuestion.findOne({
-        $and: [
-          { _id: new Types.ObjectId(input.questionId) },
-          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
-        ],
-      });
-      if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
+  // ─── listForTopic (all questions in a section + this user's status) ──────────
+  listForTopic: authenticatedProcedure
+    .input(listForTopicInputModel)
+    .output(listForTopicOutputModel)
+    .query(async ({ ctx, input }) => {
+      const userId = new Types.ObjectId(ctx.user!.userId);
+      const topicId = new Types.ObjectId(input.topicId);
 
-      const nextLevel = input.currentHintLevel + 1;
-      if (nextLevel > question.hints.length) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "No more hints available" });
-      }
+      const questions = await Question.find({ topicId, deletedAt: null });
+      const progress = await QuestionProgress.find({ userId, topicId });
+      const pmap = new Map(progress.map((p) => [p.questionId.toString(), p]));
 
-      const hintText = question.hints[nextLevel - 1];
-      if (!hintText) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Hint data missing for this question" });
-      }
+      const order: Record<string, number> = { easy: 0, medium: 1, hard: 2 };
 
-      await HintEvent.insertOne({
-        userId: new Types.ObjectId(ctx.user!.userId),
-        questionId: question._id,
-        moduleId: question.moduleId,
-        hintLevel: nextLevel as 1 | 2 | 3 | 4 | 5,
-        hintText,
-        requestedAt: new Date(),
-      });
-
-      return { hintText, hintLevel: nextLevel, isLastHint: nextLevel === 5 };
+      return questions
+        .map((q) => {
+          const p = pmap.get(q._id.toString());
+          const status: "not_attempted" | "attempted" | "solved" = p?.solved
+            ? "solved"
+            : p && p.attemptsCount > 0
+              ? "attempted"
+              : "not_attempted";
+          return {
+            id: q._id.toString(),
+            difficulty: q.difficulty,
+            questionType: q.questionType,
+            points: q.points,
+            questionText: q.questionText,
+            status,
+            bestPointsAwarded: p?.bestPointsAwarded ?? 0,
+            attemptsCount: p?.attemptsCount ?? 0,
+          };
+        })
+        .sort((a, b) => order[a.difficulty] - order[b.difficulty]);
     }),
 
-  runCode: studentProcedure
+  // ─── getById ────────────────────────────────────────────────────────────────
+  getById: authenticatedProcedure
+    .input(getByIdInputModel)
+    .output(getByIdOutputModel)
+    .query(async ({ ctx, input }) => {
+      const question = await Question.findOne({
+        _id: new Types.ObjectId(input.questionId),
+        deletedAt: null,
+      });
+
+      if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
+
+      return {
+        id: question._id.toString(),
+        topicId: question.topicId.toString(),
+        difficulty: question.difficulty,
+        questionType: question.questionType,
+        questionText: question.questionText,
+        ...(question.starterCode ? { starterCode: question.starterCode } : {}),
+        testCasePreview: buildTestCasePreview(question.testCases),
+        points: question.points,
+      };
+    }),
+
+  // ─── runCode ─────────────────────────────────────────────────────────────────
+  runCode: authenticatedProcedure
     .input(runCodeInputModel)
     .output(runCodeOutputModel)
     .mutation(async ({ ctx, input }) => {
-      const question = await GeneratedQuestion.findOne({
-        $and: [
-          { _id: new Types.ObjectId(input.questionId) },
-          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
-        ],
+      const question = await Question.findOne({
+        _id: new Types.ObjectId(input.questionId),
+        deletedAt: null,
       });
+
       if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
 
       const result = await codeExecSvc.execute({
@@ -256,26 +181,143 @@ export const questionsRouter = router({
         timeoutMs: 5000,
       });
 
+      // Redact hidden test case content — show pass/fail only
+      const redacted = result.testResults.map((r) =>
+        r.hidden ? { ...r, expectedOutput: "", actualOutput: r.passed ? "" : "(hidden)" } : r,
+      );
+
       return {
         ...result,
-        testResults: result.testResults.map((r) =>
-          r.hidden
-            ? { ...r, expectedOutput: "", actualOutput: r.passed ? "" : "(hidden)" }
-            : r,
-        ),
+        testResults: redacted,
       };
     }),
 
-  requestCodingHint: studentProcedure
+  // ─── runWithInput (interactive: run the code against the user's own stdin) ────
+  runWithInput: authenticatedProcedure
+    .input(runWithInputInputModel)
+    .output(runWithInputOutputModel)
+    .mutation(async ({ input }) => {
+      const result = await codeExecSvc.execute({
+        code: input.code,
+        testCases: [{ input: input.stdin, expectedOutput: "", hidden: false }],
+        timeoutMs: 5000,
+      });
+      return {
+        stdout: result.testResults[0]?.actualOutput ?? "",
+        stderr: result.stderr,
+        timedOut: result.timedOut,
+        blocked: result.blocked,
+        blockReason: result.blockReason,
+      };
+    }),
+
+  // ─── submit ──────────────────────────────────────────────────────────────────
+  submit: authenticatedProcedure
+    .input(submitInputModel)
+    .output(submitOutputModel)
+    .mutation(async ({ ctx, input }) => {
+      const q = await Question.findOne({ _id: new Types.ObjectId(input.questionId), deletedAt: null });
+      if (!q) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
+
+      // 1. Run test cases in sandbox
+      const exec = await codeExecSvc.execute({ code: input.code, testCases: q.testCases, timeoutMs: 5000 });
+      const testsPassed = exec.testResults.filter((r) => r.passed).length;
+      const totalTests = exec.testResults.length;
+
+      // 2. AI feedback (Haiku via assessCode)
+      const ai = await codingAssessmentSvc.assessCode({
+        questionText: q.questionText,
+        submittedCode: input.code,
+        testResults: exec.testResults,
+        pointsAvailable: q.points,
+      });
+
+      // 3. Award-once scoring
+      const score = await scoringSvc.applyAttempt({
+        userId: ctx.user!.userId,
+        questionId: q._id.toString(),
+        topicId: q.topicId.toString(),
+        difficulty: q.difficulty,
+        testsPassed,
+        totalTests,
+      });
+
+      // 4. Record the attempt
+      const priorCount = await QuestionAttempt.countDocuments({
+        questionId: q._id,
+        userId: new Types.ObjectId(ctx.user!.userId),
+        deletedAt: null,
+      });
+
+      const attempt = await QuestionAttempt.insertOne({
+        userId: new Types.ObjectId(ctx.user!.userId),
+        questionId: q._id,
+        topicId: q.topicId,
+        attemptNumber: priorCount + 1,
+        submittedCode: input.code,
+        testResults: exec.testResults,
+        testsPassed,
+        testsFailed: totalTests - testsPassed,
+        totalTests,
+        feedback: {
+          text: ai.feedback,
+          strengths: ai.strengths,
+          missingPoints: ai.missingPoints,
+          syntaxValid: ai.syntaxValid,
+          errorCategory: ai.errorCategory,
+        },
+        pointsAwardedThisAttempt: score.delta,
+        hintsUsedCount: input.hintsUsed,
+        timeSpentSeconds: input.timeSpentSeconds,
+      });
+
+      // 5. Add question to session if sessionId provided
+      if (input.sessionId) {
+        await StudySession.updateOne(
+          {
+            _id: new Types.ObjectId(input.sessionId),
+            userId: new Types.ObjectId(ctx.user!.userId),
+            deletedAt: null,
+          },
+          { $addToSet: { questionIds: q._id } },
+        );
+      }
+
+      // 6. Redact hidden test results before returning
+      const redacted = exec.testResults.map((r) =>
+        r.hidden ? { ...r, expectedOutput: "", actualOutput: r.passed ? "" : "(hidden)" } : r,
+      );
+
+      return {
+        attemptId: attempt._id.toString(),
+        testResults: redacted,
+        testsPassed,
+        testsFailed: totalTests - testsPassed,
+        totalTests,
+        feedback: {
+          text: ai.feedback,
+          strengths: ai.strengths,
+          missingPoints: ai.missingPoints,
+          syntaxValid: ai.syntaxValid,
+          errorCategory: ai.errorCategory,
+        },
+        pointsAwarded: score.delta,
+        newTotalPoints: score.newTotalPoints,
+        solved: score.solved,
+        modelAnswer: q.modelAnswer,
+      };
+    }),
+
+  // ─── requestCodingHint ───────────────────────────────────────────────────────
+  requestCodingHint: authenticatedProcedure
     .input(requestCodingHintInputModel)
     .output(requestCodingHintOutputModel)
     .mutation(async ({ ctx, input }) => {
-      const question = await GeneratedQuestion.findOne({
-        $and: [
-          { _id: new Types.ObjectId(input.questionId) },
-          { userId: new Types.ObjectId(ctx.user!.userId), deletedAt: null },
-        ],
+      const question = await Question.findOne({
+        _id: new Types.ObjectId(input.questionId),
+        deletedAt: null,
       });
+
       if (!question) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
 
       const nextLevel = input.currentHintLevel + 1;
@@ -283,20 +325,17 @@ export const questionsRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "No more hints available" });
       }
 
-      const modelId = await questionGenSvc.resolveModelForUser(ctx.user!.userId);
-
       const hint = await hintGenSvc.generateHint({
         questionText: question.questionText,
         submittedCode: input.code,
         hintLevel: nextLevel as 1 | 2 | 3 | 4 | 5,
         testResults: input.testResults,
-        modelId,
       });
 
       await HintEvent.insertOne({
         userId: new Types.ObjectId(ctx.user!.userId),
         questionId: question._id,
-        moduleId: question.moduleId,
+        topicId: question.topicId,
         hintLevel: nextLevel as 1 | 2 | 3 | 4 | 5,
         hintText: hint.hintText,
         requestedAt: new Date(),

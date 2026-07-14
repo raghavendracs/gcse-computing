@@ -12,7 +12,6 @@ export const generateHintInput = z.object({
   submittedCode: z.string(),
   hintLevel: z.number().int().min(1).max(5),
   testResults: z.array(testResultSchema).optional(),
-  modelId: z.string(),
 });
 
 export type GenerateHintInput = z.infer<typeof generateHintInput>;

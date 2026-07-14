@@ -3,10 +3,10 @@ import { BaseMongodbSchema } from "./_base.model";
 
 export interface IStudySession extends BaseMongodbSchema {
   userId: Types.ObjectId;
-  moduleId?: Types.ObjectId;
   mode: "theory" | "coding" | "mixed" | "timed" | "review";
   startedAt: Date;
   endedAt?: Date;
+  durationSeconds?: number;
   questionIds: Types.ObjectId[];
   summary: {
     questionsAttempted: number;
@@ -18,7 +18,6 @@ export interface IStudySession extends BaseMongodbSchema {
 const studySessionSchema = new Schema<IStudySession>(
   {
     userId: { type: Schema.ObjectId, required: true, ref: "users" },
-    moduleId: { type: Schema.ObjectId, required: false, ref: "modules" },
     mode: {
       type: String,
       enum: ["theory", "coding", "mixed", "timed", "review"],
@@ -26,7 +25,8 @@ const studySessionSchema = new Schema<IStudySession>(
     },
     startedAt: { type: Date, default: Date.now },
     endedAt: { type: Date, required: false },
-    questionIds: [{ type: Schema.ObjectId, ref: "generated_questions" }],
+    durationSeconds: { type: Number, required: false },
+    questionIds: [{ type: Schema.ObjectId, ref: "questions" }],
     summary: {
       questionsAttempted: { type: Number, default: 0 },
       averageScore: { type: Number, default: 0 },
@@ -39,7 +39,6 @@ const studySessionSchema = new Schema<IStudySession>(
 
 studySessionSchema.index({ userId: 1 });
 studySessionSchema.index({ deletedAt: 1 });
-studySessionSchema.index({ userId: 1, moduleId: 1 });
 studySessionSchema.index({ startedAt: -1 });
 
 export const StudySession = model<IStudySession>("study_sessions", studySessionSchema);

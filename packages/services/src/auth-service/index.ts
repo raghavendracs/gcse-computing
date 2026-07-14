@@ -1,29 +1,18 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import {
-  User,
-  StudentProgress,
-  StudySession,
-  QuestionAttempt,
-  GeneratedQuestion,
-  HintEvent,
-} from "@gcse/database";
+import { User } from "@gcse/database";
 import { Types } from "mongoose";
 import {
   LoginPayload,
-  SignupParentPayload,
-  SignupStudentPayload,
+  SignupPayload,
   UpdateProfilePayload,
   loginPayload,
-  signupParentPayload,
-  signupStudentPayload,
+  signupPayload,
   updateProfilePayload,
 } from "./models";
 
 interface JWTPayload {
   userId: string;
-  role: "parent" | "student";
-  parentId?: string;
 }
 
 class AuthService {
@@ -49,36 +38,21 @@ class AuthService {
     }
   }
 
-  async signupParent(input: SignupParentPayload) {
-    const data = await signupParentPayload.parseAsync(input);
-    const existing = await User.findOne({ email: data.email.toLowerCase(), deletedAt: null });
-    if (existing) throw new Error("Email already registered");
+  async signup(input: SignupPayload) {
+    const data = await signupPayload.parseAsync(input);
+
+    const existingEmail = await User.findOne({ email: data.email.toLowerCase(), deletedAt: null });
+    if (existingEmail) throw new Error("Email already registered");
+
+    const existingDisplayName = await User.findOne({ displayName: data.displayName, deletedAt: null });
+    if (existingDisplayName) throw new Error("Display name taken");
 
     const passwordHash = await this.hashPassword(data.password);
     const user = await User.insertOne({
       email: data.email.toLowerCase(),
       passwordHash,
       fullName: data.fullName.trim(),
-      role: "parent" as const,
-      aiModelPreference: data.aiModelPreference,
-    });
-
-    return this.toPublicUser(user);
-  }
-
-  async createStudent(input: SignupStudentPayload) {
-    const data = await signupStudentPayload.parseAsync(input);
-    const existing = await User.findOne({ email: data.email.toLowerCase(), deletedAt: null });
-    if (existing) throw new Error("Email already registered");
-
-    const passwordHash = await this.hashPassword(data.password);
-    const user = await User.insertOne({
-      email: data.email.toLowerCase(),
-      passwordHash,
-      fullName: data.fullName.trim(),
-      role: "student" as const,
-      parentId: new Types.ObjectId(data.parentId),
-      examBoardPreference: data.examBoardPreference,
+      displayName: data.displayName.trim(),
     });
 
     return this.toPublicUser(user);
@@ -97,11 +71,7 @@ class AuthService {
       { $set: { lastLoginAt: new Date() } },
     );
 
-    const token = this.generateToken({
-      userId: user._id.toString(),
-      role: user.role,
-      parentId: user.parentId?.toString(),
-    });
+    const token = this.generateToken({ userId: user._id.toString() });
 
     return { token, user: this.toPublicUser(user) };
   }
@@ -118,8 +88,15 @@ class AuthService {
     const data = await updateProfilePayload.parseAsync(input);
     const updateFields: Record<string, unknown> = {};
     if (data.fullName) updateFields.fullName = data.fullName.trim();
-    if (data.examBoardPreference) updateFields.examBoardPreference = data.examBoardPreference;
-    if (data.aiModelPreference) updateFields.aiModelPreference = data.aiModelPreference;
+    if (data.displayName) {
+      const existingDisplayName = await User.findOne({
+        displayName: data.displayName,
+        _id: { $ne: new Types.ObjectId(userId) },
+        deletedAt: null,
+      });
+      if (existingDisplayName) throw new Error("Display name taken");
+      updateFields.displayName = data.displayName.trim();
+    }
 
     if (Object.keys(updateFields).length === 0) throw new Error("No fields to update");
 
@@ -132,48 +109,13 @@ class AuthService {
     return this.toPublicUser(user);
   }
 
-  async getStudentsForParent(parentId: string) {
-    const students = await User.find({
-      $and: [
-        { parentId: new Types.ObjectId(parentId) },
-        { role: "student" },
-        { deletedAt: null },
-      ],
-    });
-    return students.map((s) => this.toPublicUser(s));
-  }
-
-  async deleteStudent(parentId: string, studentId: string) {
-    const student = await User.findOne({
-      $and: [
-        { _id: new Types.ObjectId(studentId) },
-        { parentId: new Types.ObjectId(parentId) },
-        { role: "student" },
-        { deletedAt: null },
-      ],
-    });
-    if (!student) throw new Error("Student not found or not owned by this parent");
-
-    const now = new Date();
-    const userIdObj = new Types.ObjectId(studentId);
-
-    await User.updateOne({ _id: userIdObj }, { $set: { deletedAt: now } });
-    await StudentProgress.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
-    await StudySession.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
-    await QuestionAttempt.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
-    await GeneratedQuestion.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
-    await HintEvent.updateMany({ userId: userIdObj, deletedAt: null }, { $set: { deletedAt: now } });
-  }
-
   private toPublicUser(user: any) {
     return {
       id: user._id.toString(),
       email: user.email,
       fullName: user.fullName,
-      role: user.role as "parent" | "student",
-      parentId: user.parentId?.toString(),
-      examBoardPreference: user.examBoardPreference as "OCR" | "AQA" | "Edexcel" | undefined,
-      aiModelPreference: user.aiModelPreference as "accurate" | "balanced" | "budget" | undefined,
+      displayName: user.displayName,
+      totalPoints: user.totalPoints ?? 0,
       createdAt: user.createdAt?.toString(),
       updatedAt: user.updatedAt?.toString(),
     };
