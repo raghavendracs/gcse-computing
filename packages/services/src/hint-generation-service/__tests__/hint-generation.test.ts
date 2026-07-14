@@ -28,7 +28,6 @@ describe("HintGenerationService", () => {
       questionText: "Write a loop that sums 5 numbers.",
       submittedCode: "for i in range(5):\n    pass",
       hintLevel: 1,
-      modelId: "claude-haiku-4-5-20251001",
     });
 
     expect(result.hintText).toBeTruthy();
@@ -45,7 +44,6 @@ describe("HintGenerationService", () => {
       questionText: "Q",
       submittedCode: "pass",
       hintLevel: 5,
-      modelId: "claude-haiku-4-5-20251001",
     });
 
     expect(result.isLastHint).toBe(true);
@@ -60,7 +58,6 @@ describe("HintGenerationService", () => {
       questionText: "Q",
       submittedCode: "pass",
       hintLevel: 2,
-      modelId: "claude-haiku-4-5-20251001",
     });
 
     expect(result.hintText).toBe("Hint: Think about loops.");

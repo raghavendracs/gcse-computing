@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { type GenerateHintInput, type GenerateHintOutput, generateHintInput } from "./models";
+import { getEvalModel } from "../ai/model-map";
 
 const HINT_LEVEL_DESCRIPTIONS = [
   "very general — point toward the concept without mentioning the code structure",
@@ -18,7 +19,7 @@ class HintGenerationService {
 
   async generateHint(input: GenerateHintInput): Promise<GenerateHintOutput> {
     const validated = await generateHintInput.parseAsync(input);
-    const { questionText, submittedCode, hintLevel, testResults, modelId } = validated;
+    const { questionText, submittedCode, hintLevel, testResults } = validated;
 
     const levelDesc = HINT_LEVEL_DESCRIPTIONS[hintLevel - 1];
 
@@ -48,7 +49,7 @@ ${testContext}
 Generate hint ${hintLevel} of 5.`;
 
     const message = await this.client.messages.create({
-      model: modelId,
+      model: getEvalModel(),
       max_tokens: 150,
       messages: [{ role: "user", content: userPrompt }],
       system: systemPrompt,
