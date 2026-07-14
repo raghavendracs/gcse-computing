@@ -8,6 +8,13 @@ export interface ITestCase {
   description: string;
 }
 
+export interface IEvalCase {
+  input: string;
+  referenceOutput: string;
+  kind: "normal" | "edge";
+  hidden: boolean;
+}
+
 export type QuestionDifficulty = "easy" | "medium" | "hard";
 export type QuestionType = "write" | "fix" | "extend";
 
@@ -18,6 +25,7 @@ export interface IQuestion extends BaseMongodbSchema {
   questionText: string;
   starterCode?: string;        // present for fix/extend
   testCases: ITestCase[];
+  evalCases?: IEvalCase[];
   points: number;              // 10 / 20 / 30 by difficulty
   hints: string[];
   modelAnswer: string;
@@ -38,6 +46,17 @@ const questionSchema = new Schema<IQuestion>(
         description: { type: String, default: "" },
       },
     ],
+    evalCases: {
+      type: [
+        {
+          input: { type: String, required: true },
+          referenceOutput: { type: String, default: "" },
+          kind: { type: String, enum: ["normal", "edge"], default: "normal" },
+          hidden: { type: Boolean, default: false },
+        },
+      ],
+      default: [],
+    },
     points: { type: Number, required: true },
     hints: [{ type: String }],
     modelAnswer: { type: String, required: true },

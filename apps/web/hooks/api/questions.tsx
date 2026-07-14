@@ -33,6 +33,14 @@ export const useListForTopic = (topicId: string, enabled = true) => {
   };
 };
 
+export const useGetDraft = (questionId: string, enabled = true) => {
+  const query = trpc.questions.getDraft.useQuery(
+    { questionId },
+    { enabled: enabled && !!questionId },
+  );
+  return { draft: query.data ?? null, isLoading: query.isLoading, isFetching: query.isFetching };
+};
+
 export const useGetQuestionById = (questionId: string) => {
   const query = trpc.questions.getById.useQuery(
     { questionId },
@@ -74,6 +82,14 @@ export const useSubmit = () => {
 
 export const useRequestCodingHint = () => {
   return trpc.questions.requestCodingHint.useMutation();
+};
+
+export const useAnalyzeSubmission = () => {
+  return trpc.questions.analyzeSubmission.useMutation();
+};
+
+export const useSaveDraft = () => {
+  return trpc.questions.saveDraft.useMutation();
 };
 
 //#endregion  //*======== Mutations ===========

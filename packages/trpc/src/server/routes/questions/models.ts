@@ -13,6 +13,17 @@ export const testResultModel = z.object({
 
 export type TestResult = z.infer<typeof testResultModel>;
 
+/** Result of running the student's code against one oracle eval case. */
+export const evalCaseResultModel = z.object({
+  input: z.string(),
+  referenceOutput: z.string(),
+  studentOutput: z.string(),
+  matched: z.boolean(),
+  kind: z.enum(["normal", "edge"]),
+  hidden: z.boolean(),
+});
+export type EvalCaseResult = z.infer<typeof evalCaseResultModel>;
+
 // ─── Public question shape (no expectedOutput, no modelAnswer) ────────────────
 
 export const publicQuestionModel = z.object({
@@ -117,23 +128,57 @@ export const submitInputModel = z.object({
 
 export const submitOutputModel = z.object({
   attemptId: z.string(),
-  testResults: z.array(testResultModel),
-  testsPassed: z.number(),
-  testsFailed: z.number(),
-  totalTests: z.number(),
-  feedback: z.object({
-    text: z.string(),
-    strengths: z.array(z.string()),
-    missingPoints: z.array(z.string()),
-    syntaxValid: z.boolean(),
-    errorCategory: z.enum(["syntax", "logic", "runtime"]).nullable(),
-  }),
+  /** Per-eval-case results (hidden cases redacted). */
+  results: z.array(evalCaseResultModel),
+  matched: z.number(),
+  total: z.number(),
   pointsAwarded: z.number(),
   newTotalPoints: z.number(),
   solved: z.boolean(),
-  /** Model answer is revealed only after a submit. */
-  modelAnswer: z.string(),
+  attemptsUsed: z.number(),
+  attemptsRemaining: z.number(),
+  /** True once solved or the 3-attempt cap is reached. */
+  revealAnswer: z.boolean(),
+  /** Best answer — null until revealAnswer is true. */
+  modelAnswer: z.string().nullable(),
 });
+
+// ─── analyzeSubmission (logical gap analysis) ─────────────────────────────────
+
+export const analyzeSubmissionInputModel = z.object({
+  questionId: z.string().describe("ID of the question"),
+  code: z.string().describe("Student's submitted code"),
+});
+
+export const analyzeSubmissionOutputModel = z.object({
+  summary: z.string(),
+  matched: z.array(z.string()),
+  gaps: z.array(
+    z.object({
+      title: z.string(),
+      detail: z.string(),
+      severity: z.enum(["logic", "edge_case", "requirement", "style"]),
+    }),
+  ),
+  likelyComplete: z.boolean().nullable(),
+});
+
+// ─── saveDraft / getDraft ─────────────────────────────────────────────────────
+
+export const saveDraftInputModel = z.object({
+  questionId: z.string().describe("ID of the question"),
+  code: z.string().describe("In-progress code to persist"),
+});
+
+export const saveDraftOutputModel = z.object({
+  savedAt: z.string(),
+});
+
+export const getDraftInputModel = z.object({
+  questionId: z.string().describe("ID of the question"),
+});
+
+export const getDraftOutputModel = z.object({ code: z.string() }).nullable();
 
 // ─── requestCodingHint ────────────────────────────────────────────────────────
 

@@ -9,9 +9,10 @@ import {
 } from "@gcse/database";
 import {
   CodeExecutionService,
-  CodingAssessmentService,
+  AgenticEvalService,
   ScoringService,
   HintGenerationService,
+  QuestionDraftService,
 } from "@gcse/services";
 import { authenticatedProcedure, router } from "../../trpc";
 import {
@@ -27,6 +28,12 @@ import {
   runWithInputOutputModel,
   submitInputModel,
   submitOutputModel,
+  analyzeSubmissionInputModel,
+  analyzeSubmissionOutputModel,
+  saveDraftInputModel,
+  saveDraftOutputModel,
+  getDraftInputModel,
+  getDraftOutputModel,
   requestCodingHintInputModel,
   requestCodingHintOutputModel,
 } from "./models";
@@ -34,9 +41,10 @@ import {
 //#region  //*=========== Service singletons ===========
 
 const codeExecSvc = new CodeExecutionService();
-const codingAssessmentSvc = new CodingAssessmentService();
+const agenticEvalSvc = new AgenticEvalService();
 const scoringSvc = new ScoringService();
 const hintGenSvc = new HintGenerationService();
+const draftSvc = new QuestionDraftService();
 
 //#endregion  //*======== Service singletons ===========
 
@@ -219,28 +227,27 @@ export const questionsRouter = router({
       const q = await Question.findOne({ _id: new Types.ObjectId(input.questionId), deletedAt: null });
       if (!q) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
 
-      // 1. Run test cases in sandbox
-      const exec = await codeExecSvc.execute({ code: input.code, testCases: q.testCases, timeoutMs: 5000 });
-      const testsPassed = exec.testResults.filter((r) => r.passed).length;
-      const totalTests = exec.testResults.length;
+      // 1. Grade by executing student code + reference oracle on cached eval cases
+      const grade = await agenticEvalSvc.gradeSubmission({ questionId: q._id.toString(), code: input.code });
 
-      // 2. AI feedback (Haiku via assessCode)
-      const ai = await codingAssessmentSvc.assessCode({
-        questionText: q.questionText,
-        submittedCode: input.code,
-        testResults: exec.testResults,
-        pointsAvailable: q.points,
-      });
-
-      // 3. Award-once scoring
+      // 2. Award-once scoring from the match rate
       const score = await scoringSvc.applyAttempt({
         userId: ctx.user!.userId,
         questionId: q._id.toString(),
         topicId: q.topicId.toString(),
         difficulty: q.difficulty,
-        testsPassed,
-        totalTests,
+        testsPassed: grade.matched,
+        totalTests: grade.total,
       });
+
+      // 3. Attempt gating — reveal the best answer once solved or at the 3-attempt cap
+      const progress = await QuestionProgress.findOne({
+        userId: new Types.ObjectId(ctx.user!.userId),
+        questionId: q._id,
+      });
+      const attemptsUsed = progress?.attemptsCount ?? 1;
+      const attemptsRemaining = Math.max(0, 3 - attemptsUsed);
+      const revealAnswer = score.solved || attemptsUsed >= 3;
 
       // 4. Record the attempt
       const priorCount = await QuestionAttempt.countDocuments({
@@ -255,16 +262,22 @@ export const questionsRouter = router({
         topicId: q.topicId,
         attemptNumber: priorCount + 1,
         submittedCode: input.code,
-        testResults: exec.testResults,
-        testsPassed,
-        testsFailed: totalTests - testsPassed,
-        totalTests,
+        testResults: grade.results.map((r) => ({
+          input: r.input,
+          expectedOutput: r.referenceOutput,
+          actualOutput: r.studentOutput,
+          passed: r.matched,
+          hidden: r.hidden,
+        })),
+        testsPassed: grade.matched,
+        testsFailed: grade.total - grade.matched,
+        totalTests: grade.total,
         feedback: {
-          text: ai.feedback,
-          strengths: ai.strengths,
-          missingPoints: ai.missingPoints,
-          syntaxValid: ai.syntaxValid,
-          errorCategory: ai.errorCategory,
+          text: `Matched ${grade.matched}/${grade.total} checks`,
+          strengths: [],
+          missingPoints: [],
+          syntaxValid: true,
+          errorCategory: null,
         },
         pointsAwardedThisAttempt: score.delta,
         hintsUsedCount: input.hintsUsed,
@@ -283,29 +296,69 @@ export const questionsRouter = router({
         );
       }
 
-      // 6. Redact hidden test results before returning
-      const redacted = exec.testResults.map((r) =>
-        r.hidden ? { ...r, expectedOutput: "", actualOutput: r.passed ? "" : "(hidden)" } : r,
+      // 6. Redact hidden eval cases (count-only on the client)
+      const results = grade.results.map((r) =>
+        r.hidden
+          ? { ...r, input: "", referenceOutput: "", studentOutput: r.matched ? "" : "(hidden)" }
+          : r,
       );
 
       return {
         attemptId: attempt._id.toString(),
-        testResults: redacted,
-        testsPassed,
-        testsFailed: totalTests - testsPassed,
-        totalTests,
-        feedback: {
-          text: ai.feedback,
-          strengths: ai.strengths,
-          missingPoints: ai.missingPoints,
-          syntaxValid: ai.syntaxValid,
-          errorCategory: ai.errorCategory,
-        },
+        results,
+        matched: grade.matched,
+        total: grade.total,
         pointsAwarded: score.delta,
         newTotalPoints: score.newTotalPoints,
         solved: score.solved,
-        modelAnswer: q.modelAnswer,
+        attemptsUsed,
+        attemptsRemaining,
+        revealAnswer,
+        modelAnswer: revealAnswer ? q.modelAnswer : null,
       };
+    }),
+
+  // ─── analyzeSubmission (logical gap analysis) ────────────────────────────────
+  analyzeSubmission: authenticatedProcedure
+    .input(analyzeSubmissionInputModel)
+    .output(analyzeSubmissionOutputModel)
+    .mutation(async ({ ctx, input }) => {
+      const q = await Question.findOne({ _id: new Types.ObjectId(input.questionId), deletedAt: null });
+      if (!q) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
+
+      const progress = await QuestionProgress.findOne({
+        userId: new Types.ObjectId(ctx.user!.userId),
+        questionId: q._id,
+      });
+      const revealAnswer = (progress?.solved ?? false) || (progress?.attemptsCount ?? 0) >= 3;
+
+      const grade = await agenticEvalSvc.gradeSubmission({ questionId: q._id.toString(), code: input.code });
+      const divergences = grade.results
+        .filter((r) => !r.matched)
+        .map((r) => ({ input: r.input, referenceOutput: r.referenceOutput, studentOutput: r.studentOutput }));
+
+      return agenticEvalSvc.analyze({
+        questionText: q.questionText,
+        submittedCode: input.code,
+        modelAnswer: q.modelAnswer,
+        divergences,
+        revealAnswer,
+      });
+    }),
+
+  // ─── saveDraft / getDraft ────────────────────────────────────────────────────
+  saveDraft: authenticatedProcedure
+    .input(saveDraftInputModel)
+    .output(saveDraftOutputModel)
+    .mutation(async ({ ctx, input }) => {
+      return draftSvc.saveDraft({ userId: ctx.user!.userId, questionId: input.questionId, code: input.code });
+    }),
+
+  getDraft: authenticatedProcedure
+    .input(getDraftInputModel)
+    .output(getDraftOutputModel)
+    .query(async ({ ctx, input }) => {
+      return draftSvc.getDraft({ userId: ctx.user!.userId, questionId: input.questionId });
     }),
 
   // ─── requestCodingHint ───────────────────────────────────────────────────────

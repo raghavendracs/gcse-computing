@@ -7,7 +7,8 @@
         "build": "tsc",
         "start": "node dist/index.js",
         "seed": "tsx src/seed/run.ts",
-        "seed:questions": "tsx src/seed/questions.ts"
+        "seed:questions": "tsx src/seed/questions.ts",
+        "seed:evalcases": "tsx src/seed/eval-cases.ts"
     },
     "dependencies": {
         "@gcse/database": "workspace:*",
