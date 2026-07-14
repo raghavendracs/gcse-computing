@@ -6,7 +6,8 @@
         "dev": "tsx watch src/index.ts",
         "build": "tsc",
         "start": "node dist/index.js",
-        "seed": "tsx src/seed/index.ts"
+        "seed": "tsx src/seed/index.ts",
+        "seed:questions": "tsx src/seed/questions.ts"
     },
     "dependencies": {
         "@gcse/database": "workspace:*",
