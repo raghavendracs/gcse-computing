@@ -1,28 +1,32 @@
 import { Schema, model, Types } from "mongoose";
 import { BaseMongodbSchema } from "./_base.model";
 
+export interface IAttemptTestResult {
+  input: string;
+  expectedOutput: string;
+  actualOutput: string;
+  passed: boolean;
+  hidden: boolean;
+}
+
 export interface IQuestionAttempt extends BaseMongodbSchema {
   userId: Types.ObjectId;
   questionId: Types.ObjectId;
-  moduleId: Types.ObjectId;
+  topicId: Types.ObjectId;
   attemptNumber: number;
-  submittedAnswer: string;
-  submissionType: "text" | "code";
-  assessment: {
-    awardedMarks: number;
-    maxMarks: number;
-    feedback: string;
-    missingPoints: string[];
+  submittedCode: string;
+  testResults: IAttemptTestResult[];
+  testsPassed: number;
+  testsFailed: number;
+  totalTests: number;
+  feedback: {
+    text: string;
     strengths: string[];
-    confidence: number;
-  };
-  codingAnalysis?: {
+    missingPoints: string[];
     syntaxValid: boolean;
-    testsPassed: number;
-    testsFailed: number;
     errorCategory: "syntax" | "logic" | "runtime" | null;
-    executionPath: "sandbox" | "ai";
   };
+  pointsAwardedThisAttempt: number;
   hintsUsedCount: number;
   timeSpentSeconds: number;
 }
@@ -30,26 +34,30 @@ export interface IQuestionAttempt extends BaseMongodbSchema {
 const questionAttemptSchema = new Schema<IQuestionAttempt>(
   {
     userId: { type: Schema.ObjectId, required: true, ref: "users" },
-    questionId: { type: Schema.ObjectId, required: true, ref: "generated_questions" },
-    moduleId: { type: Schema.ObjectId, required: true, ref: "modules" },
+    questionId: { type: Schema.ObjectId, required: true, ref: "questions" },
+    topicId: { type: Schema.ObjectId, required: true, ref: "programming_topics" },
     attemptNumber: { type: Number, required: true, default: 1 },
-    submittedAnswer: { type: String, required: true },
-    submissionType: { type: String, enum: ["text", "code"], required: true },
-    assessment: {
-      awardedMarks: { type: Number, required: true },
-      maxMarks: { type: Number, required: true },
-      feedback: { type: String, required: true },
-      missingPoints: [{ type: String }],
+    submittedCode: { type: String, required: true },
+    testResults: [
+      {
+        input: { type: String },
+        expectedOutput: { type: String },
+        actualOutput: { type: String },
+        passed: { type: Boolean },
+        hidden: { type: Boolean, default: false },
+      },
+    ],
+    testsPassed: { type: Number, default: 0 },
+    testsFailed: { type: Number, default: 0 },
+    totalTests: { type: Number, default: 0 },
+    feedback: {
+      text: { type: String, default: "" },
       strengths: [{ type: String }],
-      confidence: { type: Number, required: true },
+      missingPoints: [{ type: String }],
+      syntaxValid: { type: Boolean, default: true },
+      errorCategory: { type: String, enum: ["syntax", "logic", "runtime", null], default: null },
     },
-    codingAnalysis: {
-      syntaxValid: { type: Boolean },
-      testsPassed: { type: Number },
-      testsFailed: { type: Number },
-      errorCategory: { type: String, enum: ["syntax", "logic", "runtime", null] },
-      executionPath: { type: String, enum: ["sandbox", "ai"] },
-    },
+    pointsAwardedThisAttempt: { type: Number, default: 0 },
     hintsUsedCount: { type: Number, default: 0 },
     timeSpentSeconds: { type: Number, default: 0 },
     deletedAt: { type: Date, default: null, required: false },
@@ -58,7 +66,7 @@ const questionAttemptSchema = new Schema<IQuestionAttempt>(
 );
 
 questionAttemptSchema.index({ deletedAt: 1 });
-questionAttemptSchema.index({ userId: 1, moduleId: 1 });
+questionAttemptSchema.index({ userId: 1, topicId: 1 });
 questionAttemptSchema.index({ userId: 1, questionId: 1 });
 questionAttemptSchema.index({ createdAt: -1 });
 
