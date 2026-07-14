@@ -110,12 +110,18 @@ class AuthService {
   }
 
   private toPublicUser(user: any) {
+    const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    // Legacy/pre-rewrite records may lack displayName (or fullName). Derive a
+    // sensible fallback so the public user shape is always valid in any DB state.
+    const email = str(user.email);
+    const fullName = str(user.fullName) || email.split("@")[0] || "User";
+    const displayName = str(user.displayName) || fullName.split(/\s+/)[0] || email.split("@")[0] || "User";
     return {
       id: user._id.toString(),
-      email: user.email,
-      fullName: user.fullName,
-      displayName: user.displayName,
-      totalPoints: user.totalPoints ?? 0,
+      email,
+      fullName,
+      displayName,
+      totalPoints: typeof user.totalPoints === "number" ? user.totalPoints : 0,
       createdAt: user.createdAt?.toString(),
       updatedAt: user.updatedAt?.toString(),
     };
