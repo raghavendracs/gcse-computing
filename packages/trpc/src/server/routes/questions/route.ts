@@ -128,7 +128,7 @@ export const questionsRouter = router({
             difficulty: q.difficulty,
             questionType: q.questionType,
             points: q.points,
-            preview: q.questionText.replace(/\s+/g, " ").trim().slice(0, 110),
+            questionText: q.questionText,
             status,
             bestPointsAwarded: p?.bestPointsAwarded ?? 0,
             attemptsCount: p?.attemptsCount ?? 0,

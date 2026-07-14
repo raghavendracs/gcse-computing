@@ -60,10 +60,16 @@ type QuestionListItem = {
   difficulty: Difficulty;
   questionType: "write" | "fix" | "extend";
   points: number;
-  preview: string;
+  questionText: string;
   status: QuestionStatus;
   bestPointsAwarded: number;
   attemptsCount: number;
+};
+
+const TYPE_LABEL: Record<"write" | "fix" | "extend", string> = {
+  write: "Write code",
+  fix: "Fix the bug",
+  extend: "Extend code",
 };
 
 // ─── Difficulty selector ─────────────────────────────────────────────────────
@@ -171,8 +177,20 @@ const STATUS_CONFIG: Record<QuestionStatus, { label: string; colour: string; bg:
 
 // ─── All-questions list ──────────────────────────────────────────────────────
 
+function QuestionTag({ label, colour, bg, border }: { label: string; colour: string; bg: string; border?: string }) {
+  return (
+    <span
+      className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+      style={{ backgroundColor: bg, color: colour, border: border ? `1px solid ${border}` : undefined }}
+    >
+      {label}
+    </span>
+  );
+}
+
 function QuestionsList({ topicId, onOpen }: { topicId: string; onOpen: (id: string) => void }) {
   const { questions, isLoading } = useListForTopic(topicId);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -209,57 +227,71 @@ function QuestionsList({ topicId, onOpen }: { topicId: string; onOpen: (id: stri
 
       <ul className="space-y-2">
         {(questions as QuestionListItem[]).map((q, i) => {
+          const expanded = expandedId === q.id;
           const diff = DIFFICULTY_CONFIG[q.difficulty];
           const status = STATUS_CONFIG[q.status];
+          const firstLine = q.questionText.split("\n")[0];
           return (
-            <li key={q.id}>
+            <li key={q.id} className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)", backgroundColor: "var(--card)" }}>
+              {/* Header — click to expand/collapse */}
               <button
-                onClick={() => onOpen(q.id)}
-                className="w-full text-left rounded-lg px-3 py-2.5 transition-colors flex items-center gap-3"
-                style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+                onClick={() => setExpandedId(expanded ? null : q.id)}
+                className="w-full text-left px-3 py-2.5 flex items-center gap-3 transition-colors"
                 onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--accent)")}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "var(--card)")}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
               >
                 <span
                   className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold"
                   style={
                     q.status === "solved"
                       ? { backgroundColor: "#16a34a", color: "#fff" }
-                      : { backgroundColor: "var(--accent)", color: "var(--muted-foreground)" }
+                      : q.status === "attempted"
+                        ? { backgroundColor: "#fef3c7", color: "#d97706", border: "1px solid #fde68a" }
+                        : { backgroundColor: "var(--accent)", color: "var(--muted-foreground)" }
                   }
+                  title={status.label}
                 >
                   {q.status === "solved" ? <Check className="w-3.5 h-3.5" /> : i + 1}
                 </span>
 
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm truncate" style={{ color: "var(--foreground)" }}>
-                    {q.preview}…
-                  </span>
-                  <span className="flex items-center gap-2 mt-1">
-                    <span
-                      className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                      style={{ backgroundColor: diff.bg, color: diff.colour, border: `1px solid ${diff.border}` }}
-                    >
-                      {diff.label}
-                    </span>
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: "var(--accent)", color: "var(--muted-foreground)" }}>
-                      {q.points} pts
-                    </span>
+                <span
+                  className={`flex-1 min-w-0 text-sm ${expanded ? "" : "truncate"}`}
+                  style={{ color: "var(--foreground)" }}
+                >
+                  {firstLine}
+                </span>
+
+                {expanded
+                  ? <ChevronDown className="w-4 h-4 shrink-0" style={{ color: "var(--muted-foreground)" }} />
+                  : <ChevronRight className="w-4 h-4 shrink-0" style={{ color: "var(--muted-foreground)" }} />}
+              </button>
+
+              {/* Expanded body — full question, then tags grouped below it */}
+              {expanded && (
+                <div className="px-3 pb-3" style={{ borderTop: "1px solid var(--border)" }}>
+                  <div className="pt-3">
+                    <QuestionText text={q.questionText} />
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap mt-4 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                    <QuestionTag label={TYPE_LABEL[q.questionType]} colour="var(--muted-foreground)" bg="var(--accent)" />
+                    <QuestionTag label={diff.label} colour={diff.colour} bg={diff.bg} border={diff.border} />
+                    <QuestionTag label={`${q.points} pts`} colour="var(--muted-foreground)" bg="var(--accent)" />
+                    <QuestionTag label={status.label} colour={status.colour} bg={status.bg} />
                     {q.status !== "not_attempted" && (
-                      <span className="text-[10px] font-mono" style={{ color: "var(--muted-foreground)" }}>
+                      <span className="text-[11px] font-mono" style={{ color: "var(--muted-foreground)" }}>
                         best {q.bestPointsAwarded}/{q.points}
                       </span>
                     )}
-                  </span>
-                </span>
-
-                <span
-                  className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                  style={{ backgroundColor: status.bg, color: status.colour }}
-                >
-                  {status.label}
-                </span>
-              </button>
+                    <button
+                      onClick={() => onOpen(q.id)}
+                      className="ml-auto px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-colors"
+                    >
+                      {q.status === "solved" ? "Review →" : "Solve →"}
+                    </button>
+                  </div>
+                </div>
+              )}
             </li>
           );
         })}

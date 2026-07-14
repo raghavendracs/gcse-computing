@@ -57,7 +57,7 @@ export const questionListItemModel = z.object({
   difficulty: z.enum(["easy", "medium", "hard"]),
   questionType: z.enum(["write", "fix", "extend"]),
   points: z.number(),
-  preview: z.string().describe("Short excerpt of the question text (no answers)"),
+  questionText: z.string().describe("Full question text (public — no answers/test outputs)"),
   status: z.enum(["not_attempted", "attempted", "solved"]),
   bestPointsAwarded: z.number(),
   attemptsCount: z.number(),
