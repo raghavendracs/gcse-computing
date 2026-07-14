@@ -51,8 +51,8 @@ Return ONLY the JSON object.`;
       messages: [{ role: "user", content: userPrompt }],
     });
 
-    this.usage.inputTokens += message.usage.input_tokens;
-    this.usage.outputTokens += message.usage.output_tokens;
+    this.usage.inputTokens += message.usage?.input_tokens ?? 0;
+    this.usage.outputTokens += message.usage?.output_tokens ?? 0;
     this.usage.calls += 1;
 
     const content = message.content[0];
