@@ -1,76 +1,141 @@
 import React from "react";
 
 /**
- * Renders AI-generated question text with:
- * - ```python / ```pseudocode code blocks styled as formatted panels
- * - (a) (b) (c) sub-questions visually separated
- * - [N marks] labels styled as badges
- * - Inline `code` with monospace styling
+ * Renders AI-generated coding-question text, preserving the markdown-ish
+ * structure the model produces:
+ * - ```python / ```pseudocode fenced code blocks → styled panels
+ * - blank-line-separated paragraphs
+ * - `1.` / `2.` numbered steps → ordered list
+ * - `- ` / `* ` bullets → unordered list
+ * - "Example:" / "Input:" / "Output:" blocks → monospace panel
+ * - inline `code` → monospace chips
+ * - all internal newlines preserved (never collapsed to a wall of text)
  */
 export function QuestionText({ text }: { text: string }) {
-  const segments = parseQuestionText(text);
+  const parts = splitFencedCode(text);
 
   return (
-    <div className="space-y-3 leading-relaxed">
-      {segments.map((seg, i) => {
-        if (seg.type === "code") {
-          return (
-            <pre
-              key={i}
-              className="bg-slate-800 text-slate-100 rounded-lg px-4 py-3 text-sm font-mono overflow-x-auto whitespace-pre-wrap"
-            >
-              {seg.lang && (
-                <span className="block text-xs text-slate-400 mb-2 font-sans uppercase tracking-wide">
-                  {seg.lang === "pseudocode" ? "Pseudocode" : "Python"}
-                </span>
-              )}
-              {seg.content}
-            </pre>
-          );
-        }
-
-        if (seg.type === "part") {
-          return (
-            <div key={i} className="flex gap-3 items-start">
-              <span className="font-bold text-slate-700 shrink-0 text-sm">({seg.label})</span>
-              <span className="text-slate-800 text-sm flex-1">
-                <InlineText text={seg.content} />
-                {seg.marks && (
-                  <span className="ml-2 text-xs font-semibold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
-                    {seg.marks} {seg.marks === 1 ? "mark" : "marks"}
-                  </span>
-                )}
-              </span>
-            </div>
-          );
-        }
-
-        // plain paragraph
-        return seg.content.trim() ? (
-          <p key={i} className="text-slate-800 text-sm">
-            <InlineText text={seg.content} />
-          </p>
-        ) : null;
-      })}
+    <div className="space-y-2.5 text-sm leading-relaxed" style={{ color: "var(--foreground)" }}>
+      {parts.flatMap((part, i) =>
+        part.type === "code"
+          ? [<CodePanel key={`c${i}`} content={part.content} lang={part.lang} />]
+          : renderTextBlocks(part.content, `t${i}`),
+      )}
     </div>
   );
 }
 
-/** Render inline: strip [N marks] labels and style `backtick` code */
+// ─── Fenced code extraction ──────────────────────────────────────────────────
+
+type Part = { type: "code"; content: string; lang?: string } | { type: "text"; content: string };
+
+function splitFencedCode(text: string): Part[] {
+  const parts: Part[] = [];
+  const re = /```(\w*)\n?([\s\S]*?)```/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push({ type: "text", content: text.slice(last, m.index) });
+    parts.push({ type: "code", content: m[2].replace(/\s+$/, ""), lang: m[1] || undefined });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ type: "text", content: text.slice(last) });
+  return parts;
+}
+
+// ─── Block-level rendering of a text span ────────────────────────────────────
+
+function renderTextBlocks(text: string, keyBase: string): React.ReactElement[] {
+  const blocks = text.split(/\n\s*\n/);
+  const nodes: React.ReactElement[] = [];
+
+  blocks.forEach((raw, bi) => {
+    const block = raw.replace(/^\n+|\n+$/g, "");
+    if (!block.trim()) return;
+    const key = `${keyBase}-${bi}`;
+    const lines = block.split("\n");
+    const nonEmpty = lines.filter((l) => l.trim());
+
+    // Ordered list — every line is "N. ..." or "N) ..."
+    if (nonEmpty.length > 0 && nonEmpty.every((l) => /^\s*\d+[.)]\s+/.test(l))) {
+      nodes.push(
+        <ol key={key} className="list-decimal ml-5 space-y-1">
+          {nonEmpty.map((l, i) => (
+            <li key={i}>
+              <InlineText text={l.replace(/^\s*\d+[.)]\s+/, "")} />
+            </li>
+          ))}
+        </ol>,
+      );
+      return;
+    }
+
+    // Unordered list — every line is "- ..." or "* ..."
+    if (nonEmpty.length > 0 && nonEmpty.every((l) => /^\s*[-*]\s+/.test(l))) {
+      nodes.push(
+        <ul key={key} className="list-disc ml-5 space-y-1">
+          {nonEmpty.map((l, i) => (
+            <li key={i}>
+              <InlineText text={l.replace(/^\s*[-*]\s+/, "")} />
+            </li>
+          ))}
+        </ul>,
+      );
+      return;
+    }
+
+    // Example / I-O block — monospace panel that preserves layout exactly
+    if (/^\s*(example|sample|input|output)\b/i.test(lines[0]) || /^\s*(input|output)\s*:/im.test(block)) {
+      nodes.push(
+        <pre
+          key={key}
+          className="text-xs font-mono rounded-lg px-3 py-2.5 overflow-x-auto whitespace-pre-wrap"
+          style={{ backgroundColor: "var(--muted)", border: "1px solid var(--border)", color: "var(--foreground)" }}
+        >
+          {block}
+        </pre>,
+      );
+      return;
+    }
+
+    // Plain paragraph — preserve internal single newlines (e.g. "Output format:" lists)
+    nodes.push(
+      <p key={key} className="whitespace-pre-wrap">
+        <InlineText text={block} />
+      </p>,
+    );
+  });
+
+  return nodes;
+}
+
+// ─── Code panel ──────────────────────────────────────────────────────────────
+
+function CodePanel({ content, lang }: { content: string; lang?: string }) {
+  return (
+    <pre className="bg-slate-800 text-slate-100 rounded-lg px-4 py-3 text-sm font-mono overflow-x-auto whitespace-pre">
+      {lang && (
+        <span className="block text-xs text-slate-400 mb-2 font-sans uppercase tracking-wide">
+          {lang === "pseudocode" ? "Pseudocode" : lang}
+        </span>
+      )}
+      {content}
+    </pre>
+  );
+}
+
+// ─── Inline: style `backtick` code ───────────────────────────────────────────
+
 function InlineText({ text }: { text: string }) {
-  // Remove trailing [N marks] — already shown as badge
-  const cleaned = text.replace(/\[\d+\s*marks?\]/gi, "").trim();
-
-  // Split on `inline code`
-  const parts = cleaned.split(/(`[^`]+`)/g);
-
+  const parts = text.split(/(`[^`]+`)/g);
   return (
     <>
       {parts.map((p, i) =>
-        p.startsWith("`") && p.endsWith("`") ? (
+        p.startsWith("`") && p.endsWith("`") && p.length > 2 ? (
           <code
             key={i}
-            className="bg-slate-100 text-slate-800 font-mono text-xs px-1.5 py-0.5 rounded"
+            className="font-mono text-xs px-1.5 py-0.5 rounded"
+            style={{ backgroundColor: "var(--accent)", color: "var(--foreground)" }}
           >
             {p.slice(1, -1)}
           </code>
@@ -80,67 +145,4 @@ function InlineText({ text }: { text: string }) {
       )}
     </>
   );
-}
-
-type Segment =
-  | { type: "code"; content: string; lang?: string }
-  | { type: "part"; label: string; content: string; marks?: number }
-  | { type: "text"; content: string };
-
-function parseQuestionText(text: string): Segment[] {
-  const segments: Segment[] = [];
-
-  // Split by fenced code blocks first
-  const codeBlockRe = /```(\w*)\n?([\s\S]*?)```/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = codeBlockRe.exec(text)) !== null) {
-    // Text before the code block
-    if (match.index > lastIndex) {
-      segments.push(...parseTextSegments(text.slice(lastIndex, match.index)));
-    }
-    segments.push({ type: "code", content: match[2].trim(), lang: match[1] || undefined });
-    lastIndex = match.index + match[0].length;
-  }
-
-  // Remaining text after last code block
-  if (lastIndex < text.length) {
-    segments.push(...parseTextSegments(text.slice(lastIndex)));
-  }
-
-  return segments;
-}
-
-function parseTextSegments(text: string): Segment[] {
-  const lines = text.split("\n");
-  const segments: Segment[] = [];
-  let pendingText: string[] = [];
-
-  const flushText = () => {
-    const joined = pendingText.join(" ").trim();
-    if (joined) segments.push({ type: "text", content: joined });
-    pendingText = [];
-  };
-
-  for (const line of lines) {
-    // Match (a), (b), (c) ... (z) sub-questions
-    const partMatch = line.match(/^\s*\(([a-z])\)\s*(.*)/i);
-    if (partMatch) {
-      flushText();
-      const content = partMatch[2];
-      const marksMatch = content.match(/\[(\d+)\s*marks?\]/i);
-      segments.push({
-        type: "part",
-        label: partMatch[1].toLowerCase(),
-        content,
-        marks: marksMatch ? parseInt(marksMatch[1], 10) : undefined,
-      });
-    } else {
-      pendingText.push(line);
-    }
-  }
-
-  flushText();
-  return segments;
 }
