@@ -78,13 +78,11 @@ export const historyRouter = router({
         topicId: attempt.topicId.toString(),
         attemptNumber: attempt.attemptNumber,
         submittedCode: attempt.submittedCode,
-        testResults: attempt.testResults.map((r) => ({
-          input: r.input,
-          expectedOutput: r.expectedOutput,
-          actualOutput: r.actualOutput,
-          passed: r.passed,
-          hidden: r.hidden,
-        })),
+        testResults: attempt.testResults.map((r) =>
+          r.hidden
+            ? { input: r.input, expectedOutput: "", actualOutput: r.passed ? "" : "(hidden)", passed: r.passed, hidden: r.hidden }
+            : { input: r.input, expectedOutput: r.expectedOutput, actualOutput: r.actualOutput, passed: r.passed, hidden: r.hidden }
+        ),
         testsPassed: attempt.testsPassed,
         testsFailed: attempt.testsFailed,
         totalTests: attempt.totalTests,

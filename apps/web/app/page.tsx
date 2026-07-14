@@ -44,7 +44,7 @@ export default function LandingPage() {
           Ace GCSE Computing
         </h1>
         <p className="text-xl text-slate-500 mb-10 max-w-xl mx-auto">
-          AI-powered practice questions aligned to your exam board. Get instant feedback, track your progress, and target your weak areas.
+          Master Python programming through hands-on practice. Write real code, get instant results from automated test cases, and climb the leaderboard as you improve.
         </p>
         <div className="flex gap-4 justify-center flex-wrap">
           <Link
@@ -67,29 +67,29 @@ export default function LandingPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           <div className="bg-slate-50 rounded-2xl p-6">
             <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center mb-4">
-              <span className="text-indigo-600 text-xl">📋</span>
+              <span className="text-indigo-600 text-xl">🌳</span>
             </div>
-            <h3 className="font-semibold text-slate-900 mb-2">Exam board aligned</h3>
+            <h3 className="font-semibold text-slate-900 mb-2">Deep topic coverage</h3>
             <p className="text-sm text-slate-500 leading-relaxed">
-              Questions mapped directly to the Edexcel, AQA, and OCR GCSE Computer Science specifications. Nothing irrelevant, nothing missing.
+              Hundreds of Python challenges spanning variables, loops, functions, data structures, algorithms, and more — organised into a structured topic tree so you always know what to tackle next.
             </p>
           </div>
           <div className="bg-slate-50 rounded-2xl p-6">
             <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center mb-4">
-              <span className="text-indigo-600 text-xl">🤖</span>
+              <span className="text-indigo-600 text-xl">⚡</span>
             </div>
-            <h3 className="font-semibold text-slate-900 mb-2">AI feedback on every answer</h3>
+            <h3 className="font-semibold text-slate-900 mb-2">Instant automated marking</h3>
             <p className="text-sm text-slate-500 leading-relaxed">
-              Every answer you submit gets detailed AI marking — strengths, missing points, and a score — so you know exactly where to improve.
+              Your code runs against normal and edge-case test cases the moment you submit. See exactly which tests pass and which fail — no waiting, no guessing.
             </p>
           </div>
           <div className="bg-slate-50 rounded-2xl p-6">
             <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center mb-4">
-              <span className="text-indigo-600 text-xl">📈</span>
+              <span className="text-indigo-600 text-xl">🏆</span>
             </div>
-            <h3 className="font-semibold text-slate-900 mb-2">Track your progress</h3>
+            <h3 className="font-semibold text-slate-900 mb-2">Earn points, climb the ranks</h3>
             <p className="text-sm text-slate-500 leading-relaxed">
-              See your mastery per topic, identify weak areas automatically, and keep your revision streak going day by day.
+              Every question you solve earns points. Watch your score grow, compete on the public leaderboard, and see how you stack up against everyone else on the platform.
             </p>
           </div>
         </div>
