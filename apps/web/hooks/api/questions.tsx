@@ -84,10 +84,6 @@ export const useRequestCodingHint = () => {
   return trpc.questions.requestCodingHint.useMutation();
 };
 
-export const useAnalyzeSubmission = () => {
-  return trpc.questions.analyzeSubmission.useMutation();
-};
-
 export const useSaveDraft = () => {
   return trpc.questions.saveDraft.useMutation();
 };

@@ -8,7 +8,6 @@ import {
   useListForTopic,
   useSubmit,
   useRequestCodingHint,
-  useAnalyzeSubmission,
   useSaveDraft,
   useGetDraft,
 } from "~/hooks/api/questions";
@@ -44,7 +43,7 @@ type EvalCaseResult = {
 type GapAnalysis = {
   summary: string;
   matched: string[];
-  gaps: { title: string; detail: string; severity: "logic" | "edge_case" | "requirement" | "style" }[];
+  gaps: { title: string; detail: string; severity: "logic" | "edge_case" | "requirement" }[];
   likelyComplete: boolean | null;
 };
 
@@ -53,6 +52,9 @@ type SubmitResult = {
   results: EvalCaseResult[];
   matched: number;
   total: number;
+  correct: boolean;
+  correctnessScore: number;
+  analysis: GapAnalysis;
   pointsAwarded: number;
   newTotalPoints: number;
   solved: boolean;
@@ -359,7 +361,6 @@ export function PracticeSession({ topicId }: Props) {
   const refetch = selectedQuestionId ? byId.refetch : random.refetch;
 
   const submit = useSubmit();
-  const analyze = useAnalyzeSubmission();
   const saveDraft = useSaveDraft();
   const draftQ = useGetDraft(question?.id ?? "", started && !!question?.id);
   const requestCodingHint = useRequestCodingHint();
@@ -557,16 +558,9 @@ export function PracticeSession({ topicId }: Props) {
         timeSpentSeconds: Math.round(timeSpent),
         sessionId: sessionIdRef.current ?? undefined,
       });
-      setSubmitResult(result as SubmitResult);
-      // Kick off the agentic gap analysis (best-effort, non-blocking).
-      setAnalysis(null);
-      const qid = question.id;
-      analyze
-        .mutateAsync({ questionId: qid, code })
-        .then((a) => setAnalysis(a as GapAnalysis))
-        .catch(() =>
-          setAnalysis({ summary: "Automated analysis unavailable.", matched: [], gaps: [], likelyComplete: null }),
-        );
+      const sr = result as SubmitResult;
+      setSubmitResult(sr);
+      setAnalysis(sr.analysis);
     } catch {
       setError("Submission failed. Please try again.");
       startTimer();
@@ -901,19 +895,26 @@ export function PracticeSession({ topicId }: Props) {
               </div>
             </div>
 
-            {/* Results summary */}
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide px-1 mb-2" style={{ color: "var(--muted-foreground)" }}>
-                Matched {submitResult.matched} / {submitResult.total} checks
-              </p>
-              {submitResult.total > 0 ? (
-                <EvalResultsTable results={submitResult.results} />
+            {/* Verdict (logic-based, tolerant of formatting) */}
+            <div className="rounded-xl p-4" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+              {submitResult.correct ? (
+                <p className="text-sm font-semibold" style={{ color: "#16a34a" }}>✓ Correct — your logic solves the problem.</p>
+              ) : submitResult.correctnessScore > 0 ? (
+                <p className="text-sm font-semibold" style={{ color: "#d97706" }}>
+                  ◑ Partially correct — about {Math.round(submitResult.correctnessScore * 100)}% there. See the notes below.
+                </p>
               ) : (
-                <p className="text-sm px-1" style={{ color: "var(--muted-foreground)" }}>
-                  No automated checks were available for this question yet.
+                <p className="text-sm font-semibold" style={{ color: "#dc2626" }}>✗ Not quite yet — check the logic notes below.</p>
+              )}
+              {submitResult.total > 0 && (
+                <p className="text-[11px] mt-1" style={{ color: "var(--muted-foreground)" }}>
+                  Ran {submitResult.total} sample {submitResult.total === 1 ? "check" : "checks"} as evidence — exact output text and formatting aren’t required.
                 </p>
               )}
             </div>
+
+            {/* Execution details (evidence only) */}
+            {submitResult.total > 0 && <EvalResultsTable results={submitResult.results} />}
 
             {/* Agentic gap analysis */}
             <div className="rounded-xl p-4" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>

@@ -28,8 +28,6 @@ import {
   runWithInputOutputModel,
   submitInputModel,
   submitOutputModel,
-  analyzeSubmissionInputModel,
-  analyzeSubmissionOutputModel,
   saveDraftInputModel,
   saveDraftOutputModel,
   getDraftInputModel,
@@ -227,17 +225,25 @@ export const questionsRouter = router({
       const q = await Question.findOne({ _id: new Types.ObjectId(input.questionId), deletedAt: null });
       if (!q) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
 
-      // 1. Grade by executing student code + reference oracle on cached eval cases
-      const grade = await agenticEvalSvc.gradeSubmission({ questionId: q._id.toString(), code: input.code });
+      // 1. Grade by LOGIC — execution is evidence; the LLM judge is the grader
+      //    (tolerant of prompts, variable names, extra output text, formatting).
+      const ev = await agenticEvalSvc.evaluate({
+        questionId: q._id.toString(),
+        questionText: q.questionText,
+        submittedCode: input.code,
+        modelAnswer: q.modelAnswer,
+      });
+      const evidenceMatched = ev.results.filter((r) => r.matched).length;
 
-      // 2. Award-once scoring from the match rate
+      // 2. Score from the correctness verdict (out of 100 → partial credit).
+      const gradedPassed = ev.correct ? 100 : Math.round(Math.max(0, Math.min(1, ev.correctnessScore)) * 100);
       const score = await scoringSvc.applyAttempt({
         userId: ctx.user!.userId,
         questionId: q._id.toString(),
         topicId: q.topicId.toString(),
         difficulty: q.difficulty,
-        testsPassed: grade.matched,
-        totalTests: grade.total,
+        testsPassed: gradedPassed,
+        totalTests: 100,
       });
 
       // 3. Attempt gating — reveal the best answer once solved or at the 3-attempt cap
@@ -262,20 +268,20 @@ export const questionsRouter = router({
         topicId: q.topicId,
         attemptNumber: priorCount + 1,
         submittedCode: input.code,
-        testResults: grade.results.map((r) => ({
+        testResults: ev.results.map((r) => ({
           input: r.input,
           expectedOutput: r.referenceOutput,
           actualOutput: r.studentOutput,
           passed: r.matched,
           hidden: r.hidden,
         })),
-        testsPassed: grade.matched,
-        testsFailed: grade.total - grade.matched,
-        totalTests: grade.total,
+        testsPassed: evidenceMatched,
+        testsFailed: ev.results.length - evidenceMatched,
+        totalTests: ev.results.length,
         feedback: {
-          text: `Matched ${grade.matched}/${grade.total} checks`,
-          strengths: [],
-          missingPoints: [],
+          text: ev.analysis.summary,
+          strengths: ev.analysis.matched,
+          missingPoints: ev.analysis.gaps.map((g) => g.title),
           syntaxValid: true,
           errorCategory: null,
         },
@@ -297,7 +303,7 @@ export const questionsRouter = router({
       }
 
       // 6. Redact hidden eval cases (count-only on the client)
-      const results = grade.results.map((r) =>
+      const results = ev.results.map((r) =>
         r.hidden
           ? { ...r, input: "", referenceOutput: "", studentOutput: r.matched ? "" : "(hidden)" }
           : r,
@@ -306,8 +312,11 @@ export const questionsRouter = router({
       return {
         attemptId: attempt._id.toString(),
         results,
-        matched: grade.matched,
-        total: grade.total,
+        matched: evidenceMatched,
+        total: ev.results.length,
+        correct: ev.correct,
+        correctnessScore: ev.correctnessScore,
+        analysis: ev.analysis,
         pointsAwarded: score.delta,
         newTotalPoints: score.newTotalPoints,
         solved: score.solved,
@@ -316,34 +325,6 @@ export const questionsRouter = router({
         revealAnswer,
         modelAnswer: revealAnswer ? q.modelAnswer : null,
       };
-    }),
-
-  // ─── analyzeSubmission (logical gap analysis) ────────────────────────────────
-  analyzeSubmission: authenticatedProcedure
-    .input(analyzeSubmissionInputModel)
-    .output(analyzeSubmissionOutputModel)
-    .mutation(async ({ ctx, input }) => {
-      const q = await Question.findOne({ _id: new Types.ObjectId(input.questionId), deletedAt: null });
-      if (!q) throw new TRPCError({ code: "NOT_FOUND", message: "Question not found" });
-
-      const progress = await QuestionProgress.findOne({
-        userId: new Types.ObjectId(ctx.user!.userId),
-        questionId: q._id,
-      });
-      const revealAnswer = (progress?.solved ?? false) || (progress?.attemptsCount ?? 0) >= 3;
-
-      const grade = await agenticEvalSvc.gradeSubmission({ questionId: q._id.toString(), code: input.code });
-      const divergences = grade.results
-        .filter((r) => !r.matched)
-        .map((r) => ({ input: r.input, referenceOutput: r.referenceOutput, studentOutput: r.studentOutput }));
-
-      return agenticEvalSvc.analyze({
-        questionText: q.questionText,
-        submittedCode: input.code,
-        modelAnswer: q.modelAnswer,
-        divergences,
-        revealAnswer,
-      });
     }),
 
   // ─── saveDraft / getDraft ────────────────────────────────────────────────────

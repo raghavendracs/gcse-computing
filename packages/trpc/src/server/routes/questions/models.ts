@@ -126,12 +126,30 @@ export const submitInputModel = z.object({
   sessionId: z.string().optional().describe("Optional study session ID"),
 });
 
+/** Logic/flow gap — never style/naming/formatting. */
+export const gapModel = z.object({
+  title: z.string(),
+  detail: z.string(),
+  severity: z.enum(["logic", "edge_case", "requirement"]),
+});
+
+export const analysisModel = z.object({
+  summary: z.string(),
+  matched: z.array(z.string()),
+  gaps: z.array(gapModel),
+  likelyComplete: z.boolean().nullable(),
+});
+
 export const submitOutputModel = z.object({
   attemptId: z.string(),
-  /** Per-eval-case results (hidden cases redacted). */
+  /** Execution evidence per case (hidden cases redacted). May be empty. */
   results: z.array(evalCaseResultModel),
   matched: z.number(),
   total: z.number(),
+  /** Logic verdict from the grader. */
+  correct: z.boolean(),
+  correctnessScore: z.number(),
+  analysis: analysisModel,
   pointsAwarded: z.number(),
   newTotalPoints: z.number(),
   solved: z.boolean(),
@@ -141,26 +159,6 @@ export const submitOutputModel = z.object({
   revealAnswer: z.boolean(),
   /** Best answer — null until revealAnswer is true. */
   modelAnswer: z.string().nullable(),
-});
-
-// ─── analyzeSubmission (logical gap analysis) ─────────────────────────────────
-
-export const analyzeSubmissionInputModel = z.object({
-  questionId: z.string().describe("ID of the question"),
-  code: z.string().describe("Student's submitted code"),
-});
-
-export const analyzeSubmissionOutputModel = z.object({
-  summary: z.string(),
-  matched: z.array(z.string()),
-  gaps: z.array(
-    z.object({
-      title: z.string(),
-      detail: z.string(),
-      severity: z.enum(["logic", "edge_case", "requirement", "style"]),
-    }),
-  ),
-  likelyComplete: z.boolean().nullable(),
 });
 
 // ─── saveDraft / getDraft ─────────────────────────────────────────────────────
